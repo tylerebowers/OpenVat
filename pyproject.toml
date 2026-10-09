@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openvat"
+version = "0.1.0"
+description = "OpenVat"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6",
+    "PyOpenGL>=3.1",
+    "numpy>=1.24",
+    "trimesh>=4.0",
+    "shapely>=2.0",
+    "pillow>=10.0",
+    "networkx>=3.0",   # trimesh uses it for mesh repair / splitting
+]
+
+[project.optional-dependencies]
+step = ["cadquery>=2.4"]          # STEP / IGES import (large install)
+dev = ["pytest"]
+
+[project.scripts]
+openvat = "openvat.app:main"
+openvat-slice = "openvat.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["openvat*"]
+
+[tool.setuptools.package-data]
+openvat = ["resources/printers/*.json", "resources/*.png"]

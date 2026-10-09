@@ -1,0 +1,251 @@
+{
+  "printer": {
+    "name": "Anycubic Photon Mono M5s",
+    "output_type": "anycubic_bitmap",
+    "res_x": 11520,
+    "res_y": 5120,
+    "print_x": 218.88,
+    "print_y": 122.88,
+    "print_z": 200.0,
+    "pixel_x_um": 19.0,
+    "pixel_y_um": 24.0,
+    "file_extension": "pm5s",
+    "layer_format": "pw0Img",
+    "photonworkshop": {
+      "machine_type": {
+        "version": "2",
+        "child_screen": [
+          {
+            "height": 5120,
+            "width": 11520,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "key_image_format": "pw0Img",
+        "key_suffix": "pm5s",
+        "max_file_version": 518,
+        "max_samples": 16,
+        "name": "Anycubic Photon Mono M5s",
+        "prev_back_color": [
+          0.0078125,
+          0.28125,
+          0.390625
+        ],
+        "prev_image_size": [
+          224,
+          168
+        ],
+        "prev_model_color": [
+          0.8046875,
+          0.8046875,
+          0.8046875
+        ],
+        "prev_supports_color": [
+          0.07421875,
+          0.92578125,
+          0.9296875
+        ],
+        "prev2_back_color": [
+          0.07843,
+          0.10588,
+          0.16078
+        ],
+        "prev2_image_size": [
+          320,
+          190
+        ],
+        "print_xsize": 218.8800048828125,
+        "print_ysize": 122.87999725341797,
+        "print_zsize": 200.0,
+        "property": 15,
+        "res_x": 11520,
+        "res_y": 5120,
+        "xy_pixel": 19.0,
+        "xy_pixel_y": 24.0
+      },
+      "firmware_calc_print_time": 1,
+      "firmware_calc_print_time_paras": {
+        "version": "2",
+        "MACHINE_AXIS_STEPS_PER_UNIT": [
+          100.0,
+          100.0,
+          3200.0,
+          94.0
+        ],
+        "MACHINE_BLOCK_BUFFER_SIZE": 32,
+        "MACHINE_DEFAULT_ACCELERATION": 1000.0,
+        "MACHINE_DEFAULT_MINSEGMENTTIME": 20000,
+        "MACHINE_DEFAULT_XYJERK": 20.0,
+        "MACHINE_DEFAULT_ZJERK": 0.2,
+        "MACHINE_GENERATE_FRAME_TIME": 450.0,
+        "MACHINE_MAX_ACCELERATION": [
+          1000,
+          1000,
+          3,
+          1000
+        ],
+        "MACHINE_MAX_FEEDRATE": [
+          200.0,
+          200.0,
+          20.0,
+          45.0
+        ],
+        "MACHINE_MAX_STEP_FREQUENCY": 256000,
+        "MACHINE_MINIMUM_PLANNER_SPEED": 0.05,
+        "MACHINE_NOR_LAYER_DOWN_HEIGHT_DIV": 0.25,
+        "MACHINE_NOR_LAYER_DOWN_SPEED_DIV": 0.5,
+        "MACHINE_NOR_LAYER_UP_HEIGHT_DIV": 0.25,
+        "MACHINE_NOR_LAYER_UP_SPEED_DIV": 0.5,
+        "MACHINE_STEP_MUL": 1,
+        "MACHINE_TIME_COMPENSATE": 0.0,
+        "MACHINE_TIM_PRES": 30.0,
+        "MACHINE_TIM_RCC_CLK": 60.0,
+        "FUNCTION": 0,
+        "MACHINE_MODE_ACCELERATION": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "LAYER_COMPENSATE": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "HEIGHT_COMPENSATE": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "TIMES_COMPENSATE": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "firmware_calc_exp_time_paras": {
+        "precision_range_branch": [
+          0,
+          5,
+          25
+        ],
+        "precision_per_volume": 5,
+        "precision_coeff_value": [
+          0.024,
+          0.01,
+          -0.2
+        ],
+        "energy_coeff": 0,
+        "machine_exposure_ton": 0.4
+      }
+    }
+  },
+  "resins": [
+    {
+      "name": "Anycubic High Speed Resin (ACF, Fast 0.1 mm)",
+      "brand": "Anycubic",
+      "density": 1.1,
+      "price_per_liter": 220.0,
+      "currency": "$",
+      "normal": {
+        "thickness": 0.1,
+        "exposure": 1.9,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 3,
+        "lift_speed": 20.0,
+        "retract_speed": 20.0
+      },
+      "bottom": {
+        "thickness": 0.1,
+        "exposure": 10.0,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 3,
+        "lift_speed": 20.0,
+        "retract_speed": 20.0
+      },
+      "bottom_layers": 3,
+      "elephant_foot_mm": 0.0,
+      "transition_layers": 0,
+      "anti_aliasing": 1,
+      "shrink_x": 1.0,
+      "shrink_y": 1.0,
+      "shrink_z": 1.0
+    },
+    {
+      "name": "Anycubic Standard Resin (0.05 mm)",
+      "brand": "Anycubic",
+      "density": 1.1,
+      "price_per_liter": 220.0,
+      "currency": "$",
+      "normal": {
+        "thickness": 0.05,
+        "exposure": 3.6,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 8.0,
+        "lift_speed": 6.0,
+        "retract_speed": 6.0
+      },
+      "bottom": {
+        "thickness": 0.05,
+        "exposure": 30.0,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 8.0,
+        "lift_speed": 6.0,
+        "retract_speed": 6.0
+      },
+      "bottom_layers": 5,
+      "elephant_foot_mm": 0.0,
+      "transition_layers": 0,
+      "anti_aliasing": 1,
+      "shrink_x": 1.0,
+      "shrink_y": 1.0,
+      "shrink_z": 1.0
+    },
+    {
+      "name": "Anycubic Standard Resin (ACF, Fast 0.1 mm)",
+      "brand": "Anycubic",
+      "density": 1.1,
+      "price_per_liter": 220.0,
+      "currency": "$",
+      "normal": {
+        "thickness": 0.1,
+        "exposure": 3.8,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 5.0,
+        "lift_speed": 20.0,
+        "retract_speed": 20.0
+      },
+      "bottom": {
+        "thickness": 0.1,
+        "exposure": 30.0,
+        "off_time": 0.5,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 5.0,
+        "lift_speed": 20.0,
+        "retract_speed": 20.0
+      },
+      "bottom_layers": 4,
+      "elephant_foot_mm": 0.0,
+      "transition_layers": 0,
+      "anti_aliasing": 1,
+      "shrink_x": 1.0,
+      "shrink_y": 1.0,
+      "shrink_z": 1.0
+    }
+  ]
+}

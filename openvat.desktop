@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenVat
+Comment=Resin 3D printer slicer
+Exec=openvat %F
+Icon=applications-engineering
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=model/stl;model/obj;model/3mf;model/step;

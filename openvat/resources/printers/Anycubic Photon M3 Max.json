@@ -1,0 +1,133 @@
+{
+  "printer": {
+    "name": "Anycubic Photon M3 Max",
+    "output_type": "anycubic_bitmap",
+    "res_x": 6480,
+    "res_y": 3600,
+    "print_x": 298.08,
+    "print_y": 165.6,
+    "print_z": 300.0,
+    "pixel_x_um": 46.0,
+    "pixel_y_um": 46.0,
+    "file_extension": "pm3m",
+    "layer_format": "pw0Img",
+    "photonworkshop": {
+      "machine_type": {
+        "version": "1",
+        "name": "Anycubic Photon M3 Max",
+        "key_suffix": "pm3m",
+        "key_image_format": "pw0Img",
+        "res_x": 6480,
+        "res_y": 3600,
+        "xy_pixel": 46.0,
+        "xy_pixel_y": 46.0,
+        "max_samples": 16,
+        "property": 7,
+        "print_xsize": 298.0799865722656,
+        "print_ysize": 165.60000610351562,
+        "print_zsize": 300.0,
+        "max_file_version": 516,
+        "prev_back_color": [
+          0.0078125,
+          0.28125,
+          0.390625
+        ],
+        "prev_model_color": [
+          0.8046875,
+          0.8046875,
+          0.8046875
+        ],
+        "prev_supports_color": [
+          0.07421875,
+          0.92578125,
+          0.9296875
+        ],
+        "prev_image_size": [
+          224,
+          168
+        ],
+        "child_screen": [
+          {
+            "x": 0,
+            "y": 0,
+            "width": 6480,
+            "height": 3600
+          }
+        ]
+      },
+      "firmware_calc_print_time": 1,
+      "firmware_calc_print_time_paras": {
+        "MACHINE_AXIS_STEPS_PER_UNIT": [
+          100.0,
+          100.0,
+          1600.0,
+          94.0
+        ],
+        "MACHINE_BLOCK_BUFFER_SIZE": 32,
+        "MACHINE_DEFAULT_ACCELERATION": 100.0,
+        "MACHINE_DEFAULT_MINSEGMENTTIME": 20000,
+        "MACHINE_DEFAULT_XYJERK": 20.0,
+        "MACHINE_DEFAULT_ZJERK": 0.05000000074505806,
+        "MACHINE_GENERATE_FRAME_TIME": 500.0,
+        "MACHINE_MAX_ACCELERATION": [
+          1000,
+          1000,
+          2,
+          1000
+        ],
+        "MACHINE_MAX_FEEDRATE": [
+          200.0,
+          200.0,
+          10.0,
+          45.0
+        ],
+        "MACHINE_MAX_STEP_FREQUENCY": 40000,
+        "MACHINE_MINIMUM_PLANNER_SPEED": 0.5,
+        "MACHINE_NOR_LAYER_DOWN_HEIGHT_DIV": 0.25,
+        "MACHINE_NOR_LAYER_DOWN_SPEED_DIV": 0.25,
+        "MACHINE_NOR_LAYER_UP_HEIGHT_DIV": 0.25,
+        "MACHINE_NOR_LAYER_UP_SPEED_DIV": 0.25,
+        "MACHINE_STEP_MUL": 1,
+        "MACHINE_TIME_COMPENSATE": 0.0,
+        "MACHINE_TIM_PRES": 60.0,
+        "MACHINE_TIM_RCC_CLK": 120.0
+      }
+    }
+  },
+  "resins": [
+    {
+      "name": "Anycubic Standard Resin (0.05 mm)",
+      "brand": "Anycubic",
+      "density": 1.1,
+      "price_per_liter": 220.0,
+      "currency": "$",
+      "normal": {
+        "thickness": 0.05,
+        "exposure": 3.0,
+        "off_time": 2.0,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 10.0,
+        "lift_speed": 4.0,
+        "retract_speed": 4.0
+      },
+      "bottom": {
+        "thickness": 0.05,
+        "exposure": 30.0,
+        "off_time": 2.0,
+        "wait_before_lift": 0.0,
+        "wait_after_lift": 0.0,
+        "lift_distance": 10.0,
+        "lift_speed": 4.0,
+        "retract_speed": 4.0
+      },
+      "bottom_layers": 6,
+      "elephant_foot_mm": 0.0,
+      "transition_layers": 0,
+      "anti_aliasing": 1,
+      "shrink_x": 1.0,
+      "shrink_y": 1.0,
+      "shrink_z": 1.0
+    }
+  ]
+}
