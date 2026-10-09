@@ -5,6 +5,10 @@ Runs on Linux, Windows and macOS.
 
 ![home_view](docs/screenshots/home_view.png)
 
+## Installing
+
+See releases
+
 ## Running
 
 Without installing (from source):
@@ -47,13 +51,7 @@ make dmg        # macOS   -> dist/OpenVat-<ver>.dmg
 * 3D build-plate view with orbit / pan / zoom, navigation cube, click-to-select and drag to move models and supports, drag-and-drop import, undo/redo (Ctrl+Z / Ctrl+Shift+Z).
 * Model editing: position, rotation, scale, mirroring, clone, mesh repair (fills holes, fixes normals), auto-arrange.
 * Supports: manual or automatic, with a density preset and a settings dialog for the base, cross bars between pillars, the interface and more. Z lift raises models off the plate so supports can go underneath. Supports are selectable and draggable; Del removes the selected one.
-* Printer profiles and resin profiles, all editable in the GUI. Each profile is its own JSON file named after the profile, and resin profiles belong to a printer:
-
-      openvat/resources/printer_presets/<printer>.json            included
-      openvat/resources/resin_presets/<printer>/<resin>.json      included
-      openvat/resources/printers/<printer>.json                   yours
-      openvat/resources/resins/<printer>/<resin>.json             yours
-
+* Printer profiles and resin profiles, all editable in the GUI. 
 * Slices to vector layers and shows them in a per-layer viewer, then a voxel preview page that rebuilds the model from the sliced layers.
 * Exports `.pwsz`, see [docs/FORMAT_PWSZ.md](docs/FORMAT_PWSZ.md) for the full format description.
 
