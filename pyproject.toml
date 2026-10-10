@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvat"
-version = "0.1.0"
-description = "OpenVat"
+version = "0.1.1"
+description = "OpenVat - FOSS Resin 3D Printer Slicer"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -16,11 +16,11 @@ dependencies = [
     "trimesh>=4.0",
     "shapely>=2.0",
     "pillow>=10.0",
-    "networkx>=3.0",   # trimesh uses it for mesh repair / splitting
+    "networkx>=3.0",
+    "cadquery>=2.4",
 ]
 
 [project.optional-dependencies]
-step = ["cadquery>=2.4"]          # STEP / IGES import (large install)
 dev = ["pytest"]
 
 [project.scripts]

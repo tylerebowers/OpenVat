@@ -17,7 +17,7 @@ from ..core.scene import Scene
 from ..core.slicer import slice_scene, SliceResult
 from ..core.supports import SupportSettings
 from ..core.hollow import HollowSettings
-from ..formats.pwsz import write_pwsz
+from ..formats.export import write_print_file, why_not
 from .about_dialog import AboutDialog
 from .app_settings_dialog import PreferencesDialog, apply_dark_mode, dark_mode, saved_colors, theme_name
 from .layer_view import LayerViewPage
@@ -77,13 +77,13 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._build_3d_page())
         self.layer_page = LayerViewPage()
         self.layer_page.back_requested.connect(lambda: self.pages.setCurrentIndex(0))
-        self.layer_page.export_requested.connect(self.export_pwsz)
+        self.layer_page.export_requested.connect(self.export_print_file)
         self.layer_page.voxels_requested.connect(self._show_voxels)
         self.pages.addWidget(self.layer_page)
         self.voxel_page = VoxelViewPage()
         self.voxel_page.back_requested.connect(lambda: self.pages.setCurrentIndex(0))
         self.voxel_page.layers_requested.connect(lambda: self.pages.setCurrentIndex(1))
-        self.voxel_page.export_requested.connect(self.export_pwsz)
+        self.voxel_page.export_requested.connect(self.export_print_file)
         self.pages.addWidget(self.voxel_page)
 
         self._build_menus()
@@ -148,7 +148,7 @@ class MainWindow(QMainWindow):
 
         file_menu = bar.addMenu("&File")
         self._action(file_menu, "&Open model…", self.open_models, QKeySequence.Open)
-        self._action(file_menu, "&Export print file…", self.export_pwsz, "Ctrl+E")
+        self._action(file_menu, "&Export print file…", self.export_print_file, "Ctrl+E")
         file_menu.addSeparator()
         self._action(file_menu, "Clear scene", self.scene.clear)
         file_menu.addSeparator()
@@ -435,7 +435,10 @@ class MainWindow(QMainWindow):
             self.progress.deleteLater()
             self.progress = None
 
-    def export_pwsz(self) -> None:
+    def export_print_file(self) -> None:
+        """Save the sliced result in the printer's own file type: the .pwsz
+        family (.pwsz, .pp1, .pm7, ...) or Photon Workshop's binary files
+        (.pwx, .pm3m, .dl2p, .pwmx, ...)."""
         if self.result is None:
             QMessageBox.information(self, "Export", "Slice the scene first.")
             return
@@ -443,9 +446,8 @@ class MainWindow(QMainWindow):
         if not printer.can_export:
             QMessageBox.information(
                 self, "Export",
-                f"{printer.name} uses {printer.layer_format} (bitmap) layer files, which OpenVat "
-                "cannot write yet.\n\nOnly printers with vector layers (pwszImg) can be exported: "
-                "Photon Mono M7 / M7 Pro / M7 Max, Mono 4 Ultra, P1 / P1 Max.")
+                why_not(printer) + "\n\nNot yet: Photon, Photon S, Mono, Mono SE, Mono SQ, Ultra, "
+                "M5s, M5s Pro.  Slicing and the previews work for every printer.")
             return
         ext = printer.file_extension or "pwsz"
         default = (self.scene.objects[0].name if self.scene.objects else "print") + f".{ext}"
@@ -457,14 +459,25 @@ class MainWindow(QMainWindow):
             path += f".{ext}"
         meshes = [o.transformed() for o in self.scene.objects if o.visible]
         meshes += self.scene.support_meshes()
+        progress = QProgressDialog(f"Writing {Path(path).name}…", None, 0, 100, self)
+        progress.setWindowTitle("Export")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(400)
+
+        def step(done: int, total: int) -> None:
+            progress.setValue(int(100 * done / max(total, 1)))
+            QApplication.processEvents()
+
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            write_pwsz(path, self.result, meshes)
+            write_print_file(path, self.result, meshes, step)
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
             return
         finally:
             QApplication.restoreOverrideCursor()
+            progress.close()
+            progress.deleteLater()
         QMessageBox.information(self, "Export", f"Saved {Path(path).name}\n\n{path}")
 
     def about(self) -> None:

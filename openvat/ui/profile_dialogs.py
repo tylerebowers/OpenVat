@@ -101,8 +101,9 @@ class _ProfileDialog(QDialog):
             if getattr(p, "can_export", True) is False:
                 # printers whose layer format OpenVat can't write yet
                 item.setForeground(QColor(140, 140, 140))
-                item.setToolTip(f"{p.name}\n{p.layer_format} layer files: slicing and previews "
-                                "work, export is not supported yet")
+                item.setToolTip(f"{p.name}\n.{p.file_extension} files ({p.layer_format}, Photon Workshop "
+                                f"version {p.file_version}): slicing and previews work, export is not "
+                                "supported yet")
         self.preset_list.blockSignals(False)
 
     def _preset_selected(self, row: int) -> None:
@@ -160,7 +161,10 @@ class PrinterDialog(_ProfileDialog):
     def result_profile(self) -> PrinterProfile:
         values = {attr: w.value() for attr, w in self.widgets.items()}
         output = self.output.currentData()
-        layer_format = "pwszImg" if output == "anycubic_pwsz" else self.printer.layer_format
+        if output == "anycubic_pwsz":
+            layer_format = "pwszImg"
+        else:                                    # bitmap: keep the preset's format, pw0Img for new ones
+            layer_format = self.printer.layer_format if self.printer.layer_format != "pwszImg" else "pw0Img"
         return replace(self.printer, name=self.name.text().strip() or "Printer",
                        output_type=output, layer_format=layer_format,
                        file_extension=self.extension.text().strip().lstrip(".") or "pwsz", **values)

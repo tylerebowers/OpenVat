@@ -2,7 +2,7 @@
 
     openvat-slice model.stl -o model.pwsz [--printer NAME] [--resin NAME]
     openvat-slice --list-profiles
-    openvat-slice --inspect file.pwsz
+    openvat-slice --inspect file.pwsz   (or .pp1, .pwx, .pm3m, .dl2p, ...)
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--resin", help="resin profile name (default: last used in the GUI)")
     ap.add_argument("--arrange", action="store_true", help="auto-arrange multiple models")
     ap.add_argument("--list-profiles", action="store_true")
-    ap.add_argument("--inspect", metavar="PWSZ", help="print a summary of an existing .pwsz")
+    ap.add_argument("--inspect", metavar="FILE", help="print a summary of an existing print file "
+                                                          "(.pwsz, .pp1, .pm7, ..., .pwx, .pm3m, .dl2p, ...)")
     ap.add_argument("--import-presets", metavar="FILE", nargs="+",
                     help="add printer + resin presets from PhotonWorkshop .pwsp files (or exports "
                          "that contain one) to the presets folder of your profiles (~/.openvat/presets)")
@@ -49,15 +50,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.inspect:
+        from .formats.pwbinary import is_pwbinary
+        if is_pwbinary(args.inspect):
+            return _inspect_binary(args.inspect)
         from .formats.pwsz import read_pwsz
         f = read_pwsz(args.inspect)
         print(f"{f.printer_name}: {f.res[0]}x{f.res[1]} px, {f.print_size} mm")
-        print(f"layers: {len(f.layer_images)}, print time {f.print_info.get('print_time')} s, "
-              f"volume {f.print_info.get('volume'):.3f} mL")
-        for i in (0, len(f.layer_images) // 2, len(f.layer_images) - 1):
-            img = f.layer_images[i]
-            print(f"  layer {i}: area {img.area2 / 2:.3f} mm^2, {img.contours} contours, "
-                  f"{len(img.segments)} segments, exposure {f.layer_paras[i]['exposure_time']} s")
+        count = len(f.layer_paras)
+        print(f"layers: {count} ({'pw0Img bitmaps' if f.bitmap else 'pwszImg vectors'}), "
+              f"print time {f.print_info.get('print_time')} s, volume {f.print_info.get('volume'):.3f} mL")
+        for i in (0, count // 2, count - 1) if count else ():
+            if f.bitmap:
+                img = f.layer_bitmap(i)
+                lit = img > 0
+                print(f"  layer {i}: {int(lit.sum())} lit pixels ({len(set(img[lit].tolist()))} grey levels), "
+                      f"exposure {f.layer_paras[i]['exposure_time']} s")
+            else:
+                img = f.layer_images[i]
+                print(f"  layer {i}: area {img.area2 / 2:.3f} mm^2, {img.contours} contours, "
+                      f"{len(img.segments)} segments, exposure {f.layer_paras[i]['exposure_time']} s")
         return 0
 
     if not args.models:
@@ -72,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     if resin is None:
         sys.exit(f"No resin profile for {printer.name}. Add one in the GUI or pass --resin.")
     if not printer.can_export:
-        sys.exit(f"{printer.name} uses {printer.layer_format} layer files, which OpenVat cannot write yet.")
+        from .formats.export import why_not
+        sys.exit(why_not(printer))
     out = Path(args.output or Path(args.models[0]).with_suffix(f".{printer.file_extension}"))
 
     scene = Scene()
@@ -93,14 +105,32 @@ def main(argv: list[str] | None = None) -> int:
 
     result = slice_scene(scene, printer, resin, progress)
     print()
-    from .formats.pwsz import write_pwsz
+    from .formats.export import write_print_file
     meshes = [o.transformed() for o in scene.objects] + scene.support_meshes()
-    write_pwsz(out, result, meshes)
+    write_print_file(out, result, meshes)
     print(f"wrote {out}: {len(result.layers)} layers, {result.volume_mm3() / 1000:.2f} mL, "
           f"~{result.print_time_s() / 60:.0f} min")
     if result.islands:
         where = ", ".join(f"{i.first}-{i.last}" if i.last > i.first else str(i.first) for i in result.islands)
         print(f"warning: {len(result.islands)} unsupported island(s) at layers {where}", file=sys.stderr)
+    return 0
+
+
+def _inspect_binary(path: str) -> int:
+    from .formats.pwbinary import read_pwbinary
+    f = read_pwbinary(path)
+    h = f.header
+    print(f"Photon Workshop file version {f.version}{': ' + f.machine_name if f.machine_name else ''}, "
+          f"{h['res_x']}x{h['res_y']} px, {h['pixel_um']:g} um pixels")
+    print(f"layers: {len(f.layers)} x {h['layer_height']:g} mm, exposure {h['exposure']:g} s "
+          f"({h['bottom_layers']:g} bottom layers {h['bottom_exposure']:g} s), lift {h['lift_height']:g} mm "
+          f"at {h['lift_speed']:g} mm/s, anti-aliasing {h['anti_aliasing']}")
+    print(f"print time {h['print_time']} s, volume {h['volume_ml']:.3f} mL, "
+          f"{h['currency']}{h['price']:.2f}")
+    for i in (0, len(f.layers) // 2, len(f.layers) - 1) if f.layers else ():
+        d = f.layers[i]
+        print(f"  layer {i}: {d.lit_pixels} lit pixels, {d.length} bytes, exposure {d.exposure:g} s, "
+              f"{d.thickness:g} mm")
     return 0
 
 

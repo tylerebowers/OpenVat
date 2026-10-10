@@ -1,8 +1,13 @@
 """Anycubic .pwsz writer (and a reader for inspection).
 
 A .pwsz file is a plain ZIP archive.  The layer "images" are *vector*
-outlines, not bitmaps: the printer rasterizes them itself.  The complete
-reverse-engineered layout is documented in docs/FORMAT_PWSZ.md; in short:
+outlines (pwszImg) the printer rasterizes itself - or, when the resin asks
+for anti-aliasing, bitmaps (pw0Img, as in the binary files, see pwbinary.py)
+with grey edges: vectors cannot carry those.  Photon Workshop does the same
+(its P1 resins have 16 anti-aliasing levels, so its .pp1 files hold
+bitmaps), and turns the bitmaps half a turn for printers whose data say
+rotate_z = 180.  The complete reverse-engineered layout is documented in
+docs/FORMAT_PWSZ.md; in short:
 
     anycubic_photon_resins.pwsp   JSON  printer + resin profiles
     layers_controller.conf        JSON  per-layer exposure / thickness / lift
@@ -12,6 +17,7 @@ reverse-engineered layout is documented in docs/FORMAT_PWSZ.md; in short:
     scene.slice                   binary per-layer summary (z, area, bbox)
     calc_layer_volumes.data       binary volume per slab of ~0.2-0.25 mm
     layer_images/layer_N.pwszImg  binary outline segments of layer N
+                  (or layer_N.pw0Img: the run-length encoded bitmap)
     preview_images/preview_N.png  thumbnails (224x168, 336x252, 800x600)
 
 Coordinates in layer files are millimeters relative to the center of the
@@ -24,7 +30,7 @@ import io
 import json
 import struct
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -37,6 +43,7 @@ from .. import __version__
 from ..core.profiles import PrinterProfile, ResinProfile
 from ..core.slicer import Layer, SliceResult
 from .preview import render_preview
+from .pwbinary import encode_pw0, encode_pw0_band, rasterize_band, turned, decode_pw0
 
 ProgressFn = Callable[[int, int], None]
 
@@ -478,6 +485,12 @@ def software_info_json() -> dict:
 # writer
 
 
+def bitmap_levels(resin: ResinProfile) -> int:
+    """Anti-aliasing levels the layers are written with: 1 = vector layers
+    (pwszImg), 2..16 = pw0Img bitmaps with that many grey levels."""
+    return int(max(1, min(resin.anti_aliasing, 16)))
+
+
 def write_pwsz(path: str | Path, result: SliceResult, preview_meshes: list[trimesh.Trimesh],
                progress: ProgressFn | None = None) -> Path:
     """Write the slice result to a .pwsz archive. ``preview_meshes`` are the
@@ -509,8 +522,17 @@ def write_pwsz(path: str | Path, result: SliceResult, preview_meshes: list[trime
         if progress:
             progress(2, total)
 
+        printer = result.printer
+        aa = bitmap_levels(result.resin)
+        turn = turned(printer)
         for i, layer in enumerate(layers):
-            zf.writestr(f"layer_images/layer_{layer.index}.pwszImg", encode_layer_image(layer.geometry))
+            if aa > 1:                       # anti-aliased: bitmaps (see the module docstring)
+                r0, band = rasterize_band(layer.geometry, printer, aa, turn)
+                blob = (encode_pw0_band(band, r0, printer.res_y) if len(band)
+                        else encode_pw0(np.zeros((printer.res_y, printer.res_x), np.uint8)))
+                zf.writestr(f"layer_images/layer_{layer.index}.pw0Img", blob)
+            else:
+                zf.writestr(f"layer_images/layer_{layer.index}.pwszImg", encode_layer_image(layer.geometry))
             if progress and i % 20 == 0:
                 progress(2 + i, total)
 
@@ -532,12 +554,21 @@ class PwszFile:
     pixel_um: tuple[float, float]
     print_size: tuple[float, float, float]
     layer_paras: list[dict]
-    layer_images: list[LayerImage]
+    layer_images: list[LayerImage]           # vector layers (empty for a bitmap file)
     print_info: dict
+    layer_bitmaps: list[bytes] = field(default_factory=list)   # pw0Img layers (empty for a vector file)
+
+    @property
+    def bitmap(self) -> bool:
+        return bool(self.layer_bitmaps)
 
     def layer_polygons(self, i: int) -> list[np.ndarray]:
         """Return the layer's segments as (N,4) arrays - handy for drawing."""
         return [self.layer_images[i].segments]
+
+    def layer_bitmap(self, i: int) -> np.ndarray:
+        """A pw0Img layer's grey levels 0..15, shape (res_y, res_x)."""
+        return decode_pw0(self.layer_bitmaps[i], *self.res)
 
 
 def read_pwsz(path: str | Path) -> PwszFile:
@@ -546,13 +577,18 @@ def read_pwsz(path: str | Path) -> PwszFile:
         ctrl = json.loads(zf.read("layers_controller.conf"))
         info = json.loads(zf.read("print_info.json"))
         mt = pwsp["machine_type"]
-        images = [decode_layer_image(zf.read(f"layer_images/layer_{i}.pwszImg"))
-                  for i in range(ctrl["count"])]
+        names = set(zf.namelist())
+        images, bitmaps = [], []
+        for i in range(ctrl["count"]):
+            if f"layer_images/layer_{i}.pw0Img" in names:
+                bitmaps.append(zf.read(f"layer_images/layer_{i}.pw0Img"))
+            else:
+                images.append(decode_layer_image(zf.read(f"layer_images/layer_{i}.pwszImg")))
     return PwszFile(
         printer_name=mt["name"], res=(mt["res_x"], mt["res_y"]),
         pixel_um=(mt["xy_pixel"], mt.get("xy_pixel_y", mt["xy_pixel"])),
         print_size=(mt["print_xsize"], mt["print_ysize"], mt["print_zsize"]),
-        layer_paras=ctrl["paras"], layer_images=images, print_info=info,
+        layer_paras=ctrl["paras"], layer_images=images, print_info=info, layer_bitmaps=bitmaps,
     )
 
 

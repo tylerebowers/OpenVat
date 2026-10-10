@@ -66,9 +66,8 @@ def profiles_dir(home: Path | None = None, settings: dict | None = None) -> Path
 
 OUTPUT_TYPES = {
     "anycubic_pwsz": "Anycubic, vector layers (pwszImg)",
-    "anycubic_bitmap": "Anycubic, bitmap layers (export not supported yet)",
+    "anycubic_bitmap": "Anycubic, bitmap layers (pw0Img: .pwx, .pm3m, .dl2p, .pwmx, ...)",
 }
-SUPPORTED_OUTPUT_TYPES = {"anycubic_pwsz"}
 
 
 @dataclass
@@ -89,8 +88,25 @@ class PrinterProfile:
     photonworkshop: dict = field(default_factory=dict)
 
     @property
+    def file_version(self) -> int:
+        """The Photon Workshop file version the printer reads: 1 for the
+        first printers (.pws, .pwx, .pw0), 515-518 for later ones."""
+        try:
+            return int(self.photonworkshop.get("machine_type", {}).get("max_file_version") or 1)
+        except (AttributeError, TypeError, ValueError):
+            return 1
+
+    @property
     def can_export(self) -> bool:
-        return self.output_type in SUPPORTED_OUTPUT_TYPES
+        """OpenVat writes the .pwsz family (vector layers, or bitmaps when
+        the resin anti-aliases) and the binary files with pw0Img bitmap
+        layers of Photon Workshop file versions 1, 516 and 517 (.pwx, .pw0,
+        .pm3m, .pm3, .pwmx, .pwma, .dl2p, .pwmb, ...); not yet versions 515
+        and 518 (.pwmo, .pwms, .pmsq, .dlp, .pm5s, .m5sp) or pwsImg (.pws)."""
+        if self.output_type == "anycubic_pwsz":
+            return True
+        return (self.output_type == "anycubic_bitmap" and self.layer_format == "pw0Img"
+                and self.file_version in (1, 516, 517))
 
     @property
     def pixel_x_mm(self) -> float:
