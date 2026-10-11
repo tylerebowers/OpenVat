@@ -7,10 +7,10 @@ Package layout:
     cli.py    headless command-line slicer
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 APP_NAME = "OpenVat"
 AUTHORS = [
     "Tyler Bowers",
-    "Anthropic Fable 5.1",
+    "Claude Fable 5.1 & Opus 5.5",
 ]
 GITHUB_URL = "https://github.com/tylerebowers/OpenVat"

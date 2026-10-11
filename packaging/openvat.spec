@@ -1,17 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec shared by all three platforms.
 
-    pyinstaller packaging/openvat.spec
+    pyinstaller --distpath build/<platform>/dist --workpath build/<platform>/work packaging/openvat.spec
 
-Produces dist/OpenVat/ (one-folder build) and, on macOS, dist/OpenVat.app.
+Produces <distpath>/OpenVat/ (one-folder build) and, on macOS,
+<distpath>/OpenVat.app.  The build scripts (packaging/build_*) wrap it into
+the AppImage, the setup.exe or the DMG in dist/.
 """
 
+import re
 import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).parent          # repository root (SPECPATH = packaging/)
+VERSION = re.search(r'^__version__ = "(.+)"', (ROOT / "openvat" / "__init__.py").read_text(), re.M)[1]
 
 # Ship the presets and the logo only (users' profiles live in ~/.openvat).
 RES = ROOT / "openvat" / "resources"
@@ -79,7 +83,8 @@ if sys.platform == "darwin":
         bundle_identifier="org.openvat.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "CFBundleShortVersionString": "0.1.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "CFBundleDocumentTypes": [{
                 "CFBundleTypeExtensions": ["stl", "obj", "3mf", "ply", "step", "stp"],
                 "CFBundleTypeRole": "Viewer",

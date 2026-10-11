@@ -1,0 +1,147 @@
+# Builds every OpenVat package, each on its own platform:
+#   Linux    dist/OpenVat-<ver>-x86_64.AppImage   (Ubuntu 22.04: runs on glibc 2.35 and newer)
+#   Windows  dist/OpenVat-<ver>-setup.exe         (Inno Setup 7, 64-bit installer)
+#   macOS    dist/OpenVat-<ver>-arm64.dmg         (Apple Silicon)
+#            dist/OpenVat-<ver>-x86_64.dmg        (Intel)
+#
+# Run it from the Actions tab ("Run workflow"): the packages are attached to
+# the run as artifacts.  Pushing a version tag (git tag v0.2.0 && git push
+# origin v0.2.0 - it must match openvat.__version__) also creates a draft
+# GitHub release with the packages; publish it from the Releases page.
+name: Build packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  INNO_VERSION: "7.0.2"
+  INNO_SHA256: "5ad54ca3def786f8f4212552e54cc6d8d61329e2d24a1cfee0571d42c2684ff1"
+  QT_LIBS: >-
+    libegl1 libgl1 libgl1-mesa-dri libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0
+    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+    libfontconfig1 libdbus-1-3
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version tag matches openvat.__version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' openvat/__init__.py)
+          [ "${GITHUB_REF_NAME#v}" = "$version" ] || { echo "::error::tag $GITHUB_REF_NAME but openvat.__version__ is $version"; exit 1; }
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          # shellcheck disable=SC2086 # QT_LIBS is a list of packages
+          sudo apt-get update && sudo apt-get install -y xvfb $QT_LIBS
+      - run: python -m pip install -r requirements.txt pytest
+      - run: xvfb-run -a python -m pytest -q tests
+
+  linux:
+    needs: test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Qt's system libraries (PyInstaller looks at them)
+        run: |
+          # shellcheck disable=SC2086 # QT_LIBS is a list of packages
+          sudo apt-get update && sudo apt-get install -y $QT_LIBS
+      - run: bash packaging/build_appimage.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-x86_64
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Inno Setup ${{ env.INNO_VERSION }}
+        shell: pwsh
+        run: |
+          $file = "innosetup-$env:INNO_VERSION-x64.exe"
+          $tag = "is-" + $env:INNO_VERSION.Replace(".", "_")
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/$file" -OutFile "$env:RUNNER_TEMP\$file"
+          if ((Get-FileHash "$env:RUNNER_TEMP\$file" -Algorithm SHA256).Hash -ne $env:INNO_SHA256) { throw "bad download: $file" }
+          $dir = "$env:RUNNER_TEMP\inno-setup-7"
+          Start-Process -Wait -FilePath "$env:RUNNER_TEMP\$file" `
+              -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/PORTABLE=1", "/DIR=$dir"
+          if (-not (Test-Path "$dir\ISCC.exe")) { throw "Inno Setup did not install" }
+          "ISCC=$dir\ISCC.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - run: pwsh -ExecutionPolicy Bypass -File packaging/build_windows.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64
+          path: dist/*-setup.exe
+          if-no-files-found: error
+
+  macos:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15           # Apple Silicon
+            arch: arm64
+          - runner: macos-15-intel     # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: bash packaging/build_macos.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft \
+              --title "OpenVat ${GITHUB_REF_NAME#v}" --generate-notes
