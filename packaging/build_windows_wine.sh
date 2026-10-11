@@ -121,7 +121,6 @@ fi
 echo "== PyInstaller (Windows)"
 win "$PY" -m pip install -q --disable-pip-version-check -r requirements.txt pyinstaller
 win "$PY" packaging/wine_stub_dlls.py        # Qt needs Windows' ICU to load; Wine has none
-win "$PY" packaging/make_icon.py packaging/openvat.ico
 win "$PY" -m PyInstaller --noconfirm --clean --log-level WARN \
     --distpath build/windows/dist --workpath build/windows/work packaging/openvat.spec
 

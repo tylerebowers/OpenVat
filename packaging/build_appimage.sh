@@ -27,11 +27,7 @@ cp -r build/linux/dist/OpenVat/* "$APPDIR/usr/bin/"
 cp openvat.desktop "$APPDIR/openvat.desktop"
 cp openvat.desktop "$APPDIR/usr/share/applications/"
 sed -i 's/^Icon=.*/Icon=openvat/' "$APPDIR/openvat.desktop" "$APPDIR/usr/share/applications/openvat.desktop"
-if [ -f packaging/openvat.png ]; then
-    cp packaging/openvat.png "$APPDIR/openvat.png"
-else
-    python3 packaging/make_icon.py "$APPDIR/openvat.png"
-fi
+cp packaging/openvat.png "$APPDIR/openvat.png"
 cp "$APPDIR/openvat.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/openvat.png"
 # Qt on X11 (XWayland on Wayland desktops), native Wayland when there is no X
 # server; QT_QPA_PLATFORM set by the user wins.  PyOpenGL is made to follow

@@ -13,7 +13,6 @@ ARCH=$(uname -m)
 
 echo "== PyInstaller"
 python3 -m pip install -q -r requirements.txt pyinstaller
-python3 packaging/make_icon.py packaging/openvat.icns
 python3 -m PyInstaller --noconfirm --clean --log-level WARN \
     --distpath build/macos/dist --workpath build/macos/work packaging/openvat.spec
 

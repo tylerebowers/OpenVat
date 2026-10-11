@@ -18,7 +18,6 @@ $version = (Select-String -Path openvat\__init__.py -Pattern '^__version__ = "(.
 
 Write-Host "== PyInstaller"
 Invoke-Checked python -m pip install -q -r requirements.txt pyinstaller
-Invoke-Checked python packaging\make_icon.py packaging\openvat.ico
 Invoke-Checked python -m PyInstaller --noconfirm --clean --distpath build\windows\dist --workpath build\windows\work packaging\openvat.spec
 
 Write-Host "== Inno Setup 7"
