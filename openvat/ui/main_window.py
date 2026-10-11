@@ -438,7 +438,7 @@ class MainWindow(QMainWindow):
     def export_print_file(self) -> None:
         """Save the sliced result in the printer's own file type: the .pwsz
         family (.pwsz, .pp1, .pm7, ...) or Photon Workshop's binary files
-        (.pwx, .pm3m, .dl2p, .pwmx, ...)."""
+        (.pws, .pwx, .pwmo, .dlp, .pm3m, .dl2p, .pwmx, .m5sp, ...)."""
         if self.result is None:
             QMessageBox.information(self, "Export", "Slice the scene first.")
             return
@@ -446,8 +446,7 @@ class MainWindow(QMainWindow):
         if not printer.can_export:
             QMessageBox.information(
                 self, "Export",
-                why_not(printer) + "\n\nNot yet: Photon, Photon S, Mono, Mono SE, Mono SQ, Ultra, "
-                "M5s, M5s Pro.  Slicing and the previews work for every printer.")
+                why_not(printer) + "\n\nSlicing and the previews work for every printer.")
             return
         ext = printer.file_extension or "pwsz"
         default = (self.scene.objects[0].name if self.scene.objects else "print") + f".{ext}"

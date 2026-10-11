@@ -2,7 +2,7 @@
 
     openvat-slice model.stl -o model.pwsz [--printer NAME] [--resin NAME]
     openvat-slice --list-profiles
-    openvat-slice --inspect file.pwsz   (or .pp1, .pwx, .pm3m, .dl2p, ...)
+    openvat-slice --inspect file.pwsz   (or .pp1, .pws, .pwx, .pm3m, .dl2p, .m5sp, ...)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arrange", action="store_true", help="auto-arrange multiple models")
     ap.add_argument("--list-profiles", action="store_true")
     ap.add_argument("--inspect", metavar="FILE", help="print a summary of an existing print file "
-                                                          "(.pwsz, .pp1, .pm7, ..., .pwx, .pm3m, .dl2p, ...)")
+                                                          "(.pwsz, .pp1, .pm7, ..., .pws, .pwx, .pm3m, .dl2p, .m5sp, ...)")
     ap.add_argument("--import-presets", metavar="FILE", nargs="+",
                     help="add printer + resin presets from PhotonWorkshop .pwsp files (or exports "
                          "that contain one) to the presets folder of your profiles (~/.openvat/presets)")

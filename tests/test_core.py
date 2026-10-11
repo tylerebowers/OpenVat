@@ -495,7 +495,7 @@ def test_printer_presets_from_photonworkshop():
     assert machine_type_json(m7)["key_suffix"] == "pm7"
     mono_x = preset("Anycubic Photon Mono X")
     assert mono_x.file_version == 516 and mono_x.pixel_x_um == mono_x.pixel_y_um == 50.0
-    assert mono_x.can_export and not preset("Anycubic Photon Mono SE").can_export      # 516 yes, 515 not yet
+    assert mono_x.can_export and preset("Anycubic Photon Mono SE").can_export          # 516 and 515
 
 
 def test_export_uses_printer_extension(tmp_path, store):
@@ -1116,7 +1116,9 @@ def test_pwx_rasterizer():
     disc = Point(0.33, -0.21).buffer(3.1, 256)
     for aa in (1, 4, 16):
         img = rasterize(MultiPolygon([disc]), p, aa)
-        assert abs(img.sum() / 15 * 0.01 - disc.area) < 0.01 * disc.area
+        light = np.where(img > 0, (img.astype(float) + 1) / 16, 0.0)     # level 16k/n - 1 = k/n covered
+        assert abs(light.sum() * 0.01 - disc.area) < 0.01 * disc.area
+    assert set(np.unique(rasterize(MultiPolygon([disc]), p, 4)).tolist()) <= {0, 3, 7, 11, 15}
     assert len(np.unique(rasterize(MultiPolygon([disc]), p, 16))) > 8           # greys along the edge
 
 
@@ -1129,9 +1131,9 @@ def test_write_and_read_pwx(tmp_path):
     from openvat.formats.pwbinary import read_pwbinary
     px, resins = read_printer_file(RESOURCES / PRINTERS / "Anycubic Photon X.json")
     zero = read_printer_file(RESOURCES / PRINTERS / "Anycubic Photon Zero.json")[0]
-    mono = read_printer_file(RESOURCES / PRINTERS / "Anycubic Photon Mono.json")[0]
+    odd = PrinterProfile(name="Odd", output_type="anycubic_bitmap", layer_format="pw9Img")
     assert px.can_export and zero.can_export and px.file_version == 1
-    assert not mono.can_export and "version 515" in why_not(mono)
+    assert not odd.can_export and "pw9Img" in why_not(odd)
     resin = resins[0]
     scene, obj = cube_scene(10.0)
     obj.position[:2] = [20.0, -15.0]                                      # off centre: +x, -y
@@ -1158,11 +1160,14 @@ def test_write_and_read_pwx(tmp_path):
     assert f.raw.build() == data                                          # reads back to the same bytes
 
 
-@pytest.mark.parametrize("name, version, first_layer_at", [("Anycubic Photon M3 Max", 516, 106440),
-                                                           ("Anycubic Photon D2", 517, 106664)])
+@pytest.mark.parametrize("name, version, first_layer_at", [("Anycubic Photon Mono SE", 515, 106204),
+                                                           ("Anycubic Photon M3 Max", 516, 106440),
+                                                           ("Anycubic Photon D2", 517, 106664),
+                                                           ("Anycubic Photon Mono M5s Pro", 518, 270636)])
 def test_write_binary_516_517(tmp_path, name, version, first_layer_at):
-    """Versions 516 (.pm3m) and 517 (.dl2p) as Photon Workshop lays them out:
-    with 960 layers the layer data starts where it does in its own files."""
+    """Versions 515 (.pwms), 516 (.pm3m), 517 (.dl2p) and 518 (.m5sp) as
+    Photon Workshop lays them out: with 960 layers the layer data starts
+    where it does in its own files."""
     from openvat.core.profiles import RESOURCES, PRINTERS, read_printer_file
     from openvat.formats.export import write_print_file
     from openvat.formats.pwbinary import read_pwbinary
@@ -1175,17 +1180,26 @@ def test_write_binary_516_517(tmp_path, name, version, first_layer_at):
     out = write_print_file(tmp_path / f"cube.{printer.file_extension}", result, [obj.transformed()])
     f = read_pwbinary(out)
     assert f.version == version == printer.file_version and f.layers[0].address == first_layer_at
-    assert f.machine_name == name and f.raw.machine[1].rstrip(b"\0") == b"pw0Img"
-    assert f.raw.machine[4:7] == pytest.approx((printer.print_x, printer.print_y, printer.print_z), rel=1e-6)
-    assert f.raw.machine[7] == version and f.raw.color_table[8:24] == b"\xff" * 16
-    extra = f.raw.extra
-    assert extra[0] == extra[7] == 2
-    assert extra[1] + extra[4] == pytest.approx(resin.bottom.lift_distance)
-    assert extra[8] + extra[11] == pytest.approx(resin.normal.lift_distance)
-    if version == 517:
+    assert f.raw.color_table[8:24] == b"\xff" * 16
+    if version >= 516:
+        assert f.machine_name == name and f.raw.machine[1].rstrip(b"\0") == b"pw0Img"
+        assert f.raw.machine[4:7] == pytest.approx((printer.print_x, printer.print_y, printer.print_z), rel=1e-6)
+        assert f.raw.machine[7] == version
+        extra = f.raw.extra
+        assert extra[0] == extra[7] == 2
+        assert extra[1] + extra[4] == pytest.approx(resin.bottom.lift_distance)
+        assert extra[8] + extra[11] == pytest.approx(resin.normal.lift_distance)
+    else:
+        assert not f.raw.machine and not f.raw.extra
+    if version >= 517:
         assert f.raw.software[0].rstrip(b"\0") == b"AC-PC" and f.raw.software[1] == 164
         assert f.raw.model[:6] == pytest.approx((-4.8, -4.8, 0.0, 4.8, 4.8, 9.6), abs=1e-4)
         assert f.header["resin_code"] == 10
+    if version == 518:
+        assert f.header["intelli_mode"] == 1
+        assert f.raw.machine[9:11] == pytest.approx((printer.pixel_x_um, printer.pixel_y_um), rel=1e-6)
+        assert f.raw.machine[12:17] == (1, 0, 0, printer.res_x, printer.res_y)         # one screen
+        assert f.raw.subimages[0] == 1 and f.raw.preview2[0::2][:2] == (320, 190)
     lit = f.layers[500].lit_pixels * (printer.pixel_x_mm * printer.pixel_y_mm)
     assert lit == pytest.approx(9.6 * 9.6, rel=0.02)
     assert f.raw.build() == out.read_bytes()
@@ -1216,7 +1230,56 @@ def test_bitmap_layers_in_pwsz_family(tmp_path):
     assert abs(cols.mean() - (p1.res_x / 2 - 30.0 / p1.pixel_x_mm)) < 2
     assert abs(rows.mean() - (p1.res_y / 2 - 20.0 / p1.pixel_y_mm)) < 2
     assert len(np.unique(img)) > 3                                          # grey edges
-    assert img.sum() / 15 * p1.pixel_x_mm * p1.pixel_y_mm == pytest.approx(16.0, rel=0.01)
+    light = np.where(img > 0, (img.astype(float) + 1) / 16, 0.0)
+    assert light.sum() * p1.pixel_x_mm * p1.pixel_y_mm == pytest.approx(16.0, rel=0.01)
     resin.anti_aliasing = 1
     out2 = write_print_file(tmp_path / "cube_vector.pp1", slice_scene(scene, p1, resin), [obj.transformed()])
     assert not read_pwsz(out2).bitmap
+
+
+@pytest.mark.parametrize("name", ["Anycubic Photon", "Anycubic Photon S"])
+def test_write_pws(tmp_path, name):
+    """The Photon and Photon S: version 1 files with pwsImg layers - one byte
+    per run, bit 7 lit, up to 125 pixels."""
+    from openvat.core.profiles import RESOURCES, PRINTERS, read_printer_file
+    from openvat.formats.export import write_print_file
+    from openvat.formats.pwbinary import read_pwbinary, encode_pws, decode_pws
+    assert encode_pws(np.full(300, 15, np.uint8)) == bytes([0xFD, 0xFD, 0xB2])
+    assert encode_pws(np.zeros(126, np.uint8)) == bytes([0x7D, 0x01])
+    printer, resins = read_printer_file(RESOURCES / PRINTERS / f"{name}.json")
+    assert printer.can_export and printer.layer_format == "pwsImg"
+    scene, obj = cube_scene(10.0)
+    obj.position[:2] = [10.0, -20.0]
+    result = slice_scene(scene, printer, resins[0])
+    out = write_print_file(tmp_path / "cube.pws", result, [obj.transformed()])
+    f = read_pwbinary(out)
+    assert f.version == 1 and f.pws and f.res == (1440, 2560) and f.header["anti_aliasing"] == 1
+    img = f.layer_image(100)
+    assert set(np.unique(img)) == {0, 15} and np.count_nonzero(img) == f.layers[100].lit_pixels
+    rows, cols = np.nonzero(img)
+    px = printer.pixel_x_mm
+    assert abs(cols.mean() - (720 + 10 / px)) < 1 and abs(rows.mean() - (1280 - 20 / px)) < 1
+    assert np.count_nonzero(img) * px * px == pytest.approx(100.0, rel=0.02)
+    blob = f.data[f.layers[100].address:f.layers[100].address + f.layers[100].length]
+    assert max(b & 0x7F for b in blob) <= 125 and np.array_equal(decode_pws(blob, 1440, 2560), img)
+    assert f.raw.build() == out.read_bytes()
+
+
+def test_write_ultra_anti_aliased(tmp_path):
+    """The Photon Ultra's resins use 4 anti-aliasing steps: grey levels
+    0, 3, 7, 11, 15 and a colour table of 63, 127, 191, 255 - as in Photon
+    Workshop's .dlp."""
+    from openvat.core.profiles import RESOURCES, PRINTERS, read_printer_file
+    from openvat.formats.export import write_print_file
+    from openvat.formats.pwbinary import read_pwbinary
+    printer, resins = read_printer_file(RESOURCES / PRINTERS / "Anycubic Photon Ultra.json")
+    assert printer.file_version == 515 and resins[0].anti_aliasing == 4
+    scene, obj = cube_scene(10.0)
+    obj.rotate(2, 30)                                                     # slanted edges: greys
+    out = write_print_file(tmp_path / "cube.dlp", slice_scene(scene, printer, resins[0]), [obj.transformed()])
+    f = read_pwbinary(out)
+    assert f.header["anti_aliasing"] == 4
+    assert f.raw.color_table[8:24] == bytes([63, 127, 191, 255] + [255] * 12)
+    img = f.layer_image(100)
+    assert set(np.unique(img).tolist()) == {0, 3, 7, 11, 15}
+    assert f.raw.build() == out.read_bytes()
