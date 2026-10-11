@@ -5,3 +5,6 @@ trimesh>=4.0
 shapely>=2.0
 pillow>=10.0
 networkx>=3.0
+manifold3d>3.4
+scipy>1.15
+trimesh>=5.0
