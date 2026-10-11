@@ -221,20 +221,18 @@ def nook_cone_length(length: float, s: SupportSettings) -> float:
 
 
 def _nook_mesh(tip: np.ndarray, foot: np.ndarray, width: float, s: SupportSettings) -> trimesh.Trimesh:
-    """Contact cone, thin rod, contact cone - straight from the contact down to the foot."""
+    """Contact cone, thin rod, contact cone - straight from the contact down
+    to the foot, as one closed shell.  (Three pieces meeting end to end left,
+    where a slice ran through a joint of a tilted nook, a sliver of the rod
+    a hair apart from the cone - an "island" with nothing under it.)"""
     axis = foot - tip
     length = float(np.linalg.norm(axis))
     if length < 1e-6:
         return trimesh.Trimesh()
     axis /= length
     r, rc = width / 2, s.nook_contact_diameter / 2
-    cone = nook_cone_length(length, s)
-    top, bottom = tip + axis * cone, foot - axis * cone
-    parts = [_tube(tip - axis * s.tip_depth, top, rc, r)]
-    if length > 2 * cone + 1e-6:
-        parts.append(_tube(top, bottom, r, r))
-    parts.append(_tube(bottom, foot + axis * s.tip_depth, r, rc))
-    return trimesh.util.concatenate([m for m in parts if len(m.faces)])
+    cone = nook_cone_length(length, s)              # always < length / 2
+    return _lathe(tip, axis, [-s.tip_depth, cone, length - cone, length + s.tip_depth], [rc, r, r, rc])
 
 
 def _column_parts(xy, top_z: float, s: SupportSettings) -> list:
@@ -307,17 +305,29 @@ def _tube(p0, p1, r0: float, r1: float, sections: int = 20) -> trimesh.Trimesh:
     length = float(np.linalg.norm(axis))
     if length < 1e-9:
         return trimesh.Trimesh()
+    return _lathe(p0, axis / length, [0.0, length], [r0, r1], sections)
+
+
+def _lathe(p0, axis, ts, radii, sections: int = 20) -> trimesh.Trimesh:
+    """A closed solid of revolution about the unit ``axis`` through ``p0``:
+    a ring of radius ``radii[k]`` at distance ``ts[k]`` along the axis (in
+    increasing order), capped at both ends."""
     ang = np.linspace(0, 2 * np.pi, sections, endpoint=False)
     circle = np.column_stack([np.cos(ang), np.sin(ang), np.zeros(sections)])
-    verts = np.vstack([circle * r0, circle * r1 + [0, 0, length], [[0, 0, 0]], [[0, 0, length]]])
-    cb, ct = 2 * sections, 2 * sections + 1
+    n = len(ts)
+    verts = np.vstack([circle * r + [0, 0, t] for t, r in zip(ts, radii)] + [[[0, 0, ts[0]], [0, 0, ts[-1]]]])
+    cb, ct = n * sections, n * sections + 1
+    last = (n - 1) * sections
     faces = []
     for i in range(sections):
         j = (i + 1) % sections
-        faces += [[i, j, sections + j], [i, sections + j, sections + i], [cb, j, i], [ct, sections + i, sections + j]]
+        for a in range(0, last, sections):                         # side, ring to ring
+            b = a + sections
+            faces += [[a + i, a + j, b + j], [a + i, b + j, b + i]]
+        faces += [[cb, j, i], [ct, last + i, last + j]]            # end caps
     m = trimesh.Trimesh(vertices=verts, faces=np.array(faces), process=False)
-    m.apply_transform(trimesh.geometry.align_vectors([0, 0, 1], axis / length))
-    m.apply_translation(p0)
+    m.apply_transform(trimesh.geometry.align_vectors([0, 0, 1], np.asarray(axis, float)))
+    m.apply_translation(np.asarray(p0, float))
     return m
 
 

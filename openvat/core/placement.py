@@ -65,6 +65,7 @@ GOAL_TRIES = 4                 # plate cells tried per route (closest first)
 NOOK_MIN_GAP = 0.5             # mm: a nook lower than this closes up by itself
 NOOK_SLIDE = 2.0               # mm a nook's contact may slide along its face to find room
 NOOK_SLIDE_STEP = 0.25         # mm between the spots tried while sliding
+NOOK_FAN_SLIDE = 0.5           # mm around the contact the tilted nooks are tried from too
 ANCHOR_HEIGHT = 3.0            # mm above an island's lowest point where its anchors go
 ANCHOR_INSET = 0.4             # mm anchors keep inside the island's outline
 NOOK_FACE_MATCH = 0.985        # the slid contact must stay on a face this parallel (cos ~10 deg)
@@ -337,6 +338,14 @@ def _plan(sup: Support, space: ModelSpace, s: SupportSettings, fixed: bool = Fal
     return _make_nook(sup, space, s, slide=not fixed)
 
 
+def _within(p: np.ndarray, q: np.ndarray, r: float) -> bool:
+    """np.linalg.norm(p - q) < r, skipping the norm when one coordinate
+    alone is (clearly) that far apart."""
+    if max(abs(float(p[0]) - float(q[0])), abs(float(p[1]) - float(q[1])), abs(float(p[2]) - float(q[2]))) > r + 1e-9:
+        return False
+    return bool(np.linalg.norm(p - q) < r)
+
+
 def _nominal_arm(sup: Support, s: SupportSettings) -> tuple:
     lean, angle = arm_for_normal(sup.normal, s.max_arm_angle, s.straight_below)
     return lean, angle, 1.0
@@ -405,7 +414,7 @@ def _arm_candidates(sup: Support, field: ClearanceField, s: SupportSettings) -> 
         if not ok[i]:
             continue
         pivot = pts[i, -1]
-        if any(np.linalg.norm(pivot - q) < 0.2 for q in pivots[-8:]):    # (nearly) the same arm again
+        if any(_within(pivot, q, 0.2) for q in pivots[-8:]):               # (nearly) the same arm again
             continue
         pivots.append(pivot)
         out.append(cands[i])
@@ -447,9 +456,12 @@ def _find_nook(sup: Support, space: ModelSpace, s: SupportSettings, max_gap: flo
     face; the contact may slide up to ``NOOK_SLIDE`` mm along its face to
     where the rod has room.  With ``max_gap`` only such short perpendicular
     nooks count.  Otherwise any direction within ``max_arm_angle`` of
-    straight down is tried from the contact itself, those closest to the
-    perpendicular first.  Where the rod doesn't fit, thinner ones are tried.
-    ``slide=False`` keeps the contact where it is."""
+    straight down is tried, those closest to the perpendicular first: from
+    the contact itself, then from spots up to ``NOOK_FAN_SLIDE`` mm around it
+    on the same face - near the limits (a gap just too wide, a rod just too
+    close to an edge) a contact a hair to one side would otherwise find no
+    nook where its neighbour does.  Where the rod doesn't fit, thinner ones
+    are tried.  ``slide=False`` keeps the contact where it is."""
     n = np.asarray(sup.normal, float)
     n = n / (np.linalg.norm(n) or 1.0)
     lean, angle = arm_for_normal(n, s.max_arm_angle, s.straight_below)
@@ -460,22 +472,41 @@ def _find_nook(sup: Support, space: ModelSpace, s: SupportSettings, max_gap: flo
     # sliding only helps when there is something across from the contact
     across_hit = space.caster.first(tip + across * 1e-3, across, reach + NOOK_SLIDE)
     spots = None
+    fan = _nook_directions(across, s) if max_gap is None else []
+    ends = {}                                    # the rays don't depend on the width: cast each once
+
+    def fit(origin, n_origin, d, width):
+        key = (*origin, *d)
+        if key not in ends:
+            ends[key] = _nook_end(space, origin, d, reach)
+        end = ends[key]
+        if end is None:
+            return None
+        return end[0] if _nook_fits(space, origin, n_origin, end[0], end[1], width, s) else None
+
     for width in _nook_widths(s):
-        foot = _nook_fit(space, tip, n, across, reach, width, s)
+        foot = fit(tip, n, across, width)
         if foot is not None:
             return tip, n, foot, width
+        if slide and (spots is None) and (across_hit is not None or fan):
+            spots = list(_face_spots(space, tip, n))[1:]
         if across_hit is not None and slide:
-            if spots is None:
-                spots = list(_face_spots(space, tip, n))[1:]
             for spot, normal in spots:
-                foot = _nook_fit(space, spot, normal, across, reach, width, s)
+                foot = fit(spot, normal, across, width)
                 if foot is not None:
                     return spot, normal, foot, width
-        if max_gap is None:
-            for d in _nook_directions(across, s):
-                foot = _nook_fit(space, tip, n, d, reach, width, s)
-                if foot is not None:
-                    return tip, n, foot, width
+        for d in fan:
+            foot = fit(tip, n, d, width)
+            if foot is not None:
+                return tip, n, foot, width
+        if fan and slide:
+            for spot, normal in spots:
+                if np.linalg.norm(spot - tip) > NOOK_FAN_SLIDE + 1e-6:
+                    continue
+                for d in fan:
+                    foot = fit(spot, normal, d, width)
+                    if foot is not None:
+                        return spot, normal, foot, width
     return None
 
 
@@ -535,9 +566,10 @@ def _nook_directions(first: np.ndarray, s: SupportSettings) -> list[np.ndarray]:
     return sorted(dirs, key=lambda d: -float(d @ first))
 
 
-def _nook_fit(space: ModelSpace, tip, n_top, direction, reach: float, width: float, s: SupportSettings):
-    """The foot of a nook from ``tip`` along ``direction`` (the first surface
-    hit), if a rod ``width`` mm thick fits there; else None."""
+def _nook_end(space: ModelSpace, tip, direction, reach: float):
+    """Where a nook from ``tip`` along ``direction`` would stand: (foot, the
+    face normal there) - the first surface hit, if far enough away and met
+    squarely enough - else None."""
     hit = space.caster.first(tip + direction * 1e-3, direction, reach)
     if hit is None or hit[0] < NOOK_MIN_GAP:
         return None
@@ -545,7 +577,16 @@ def _nook_fit(space: ModelSpace, tip, n_top, direction, reach: float, width: flo
     n_foot = np.asarray(space.caster.normals[face], float)
     if -(direction @ n_foot) < math.cos(math.radians(NOOK_END_LIMIT)):     # meets the far face askew
         return None
-    return foot if _nook_fits(space, tip, n_top, foot, n_foot, width, s) else None
+    return foot, n_foot
+
+
+def _nook_fit(space: ModelSpace, tip, n_top, direction, reach: float, width: float, s: SupportSettings):
+    """The foot of a nook from ``tip`` along ``direction`` (the first surface
+    hit), if a rod ``width`` mm thick fits there; else None."""
+    end = _nook_end(space, tip, direction, reach)
+    if end is None:
+        return None
+    return end[0] if _nook_fits(space, tip, n_top, end[0], end[1], width, s) else None
 
 
 def _nook_fits(space: ModelSpace, tip, n_top, foot, n_foot, width: float, s: SupportSettings) -> bool:
@@ -579,26 +620,50 @@ def _nook_fits(space: ModelSpace, tip, n_top, foot, n_foot, width: float, s: Sup
     pts = pts.reshape(-1, 3)
     faces = np.minimum((pts - tip) @ n_top, (pts - foot) @ n_foot)               # distance to the end faces
     need = np.minimum(s.model_clearance, faces - field.cell)
-    if not (field.distance(pts) >= need).all():
-        return False
+    coarse = (np.arange(len(t)) % 4 == 0).repeat(len(ang))                       # every 4th ring first:
+    for part in (coarse, ~coarse):                                               # most misfits show there
+        if not (field.distance(pts[part]) >= need[part]).all():
+            return False
     return _clear_of_other_faces(space.caster, pts, (tip, n_top), (foot, n_foot), clearance=s.model_clearance)
+
+
+CLEAR_CHUNK = 48                # points checked together by _clear_of_other_faces
 
 
 def _clear_of_other_faces(caster: RayCaster, pts: np.ndarray, *ends, clearance: float) -> bool:
     """Exact check: are all points at least ``clearance`` from every mesh
-    face, except faces in the planes of ``ends`` ((point, normal) pairs)?"""
+    face, except faces in the planes of ``ends`` ((point, normal) pairs)?
+
+    The points go a few at a time (they come in rings along a rod, so a
+    chunk is a short piece of it), each against the faces near that piece;
+    only the pairs where the face's bounding box comes within ``clearance``
+    of the point are measured - the others are farther away for sure - and
+    the first point too close ends the check."""
     lo, hi = pts.min(axis=0) - clearance, pts.max(axis=0) + clearance
-    cand = np.flatnonzero(np.all(caster.hi >= lo, axis=1) & np.all(caster.lo <= hi, axis=1))
+    cand = caster.overlapping(lo, hi)
     for point, normal in ends:
         same = (caster.normals[cand] @ normal >= NOOK_FACE_MATCH) & \
                (np.abs((caster.tri[cand, 0] - point) @ normal) < 0.05)
         cand = cand[~same]
     if len(cand) == 0:
         return True
-    tri = np.tile(caster.tri[cand], (len(pts), 1, 1))
-    p = np.repeat(pts, len(cand), axis=0)
-    d = np.linalg.norm(trimesh.triangles.closest_point(tri, p) - p, axis=1)
-    return bool(d.min() >= clearance - 1e-6)
+    limit = clearance - 1e-6
+    for k in range(0, len(pts), CLEAR_CHUNK):
+        p = pts[k:k + CLEAR_CHUNK]
+        near = np.intersect1d(caster.overlapping(p.min(axis=0) - clearance, p.max(axis=0) + clearance), cand,
+                              assume_unique=True)
+        if len(near) == 0:
+            continue
+        close = np.all(caster.hi[near][None] >= p[:, None] - clearance, axis=2) & \
+                np.all(caster.lo[near][None] <= p[:, None] + clearance, axis=2)
+        i, j = np.nonzero(close)
+        if len(i) == 0:
+            continue
+        q = p[i]
+        d = np.linalg.norm(trimesh.triangles.closest_point(caster.tri[near[j]], q) - q, axis=1)
+        if d.min() < limit:
+            return False
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -820,7 +885,7 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
       large enough a support goes in its middle.  Flat ceilings appear in
       one slice and get supports on a hexagonal lattice.
     """
-    from .slicer import slice_mesh_at          # local import: slicer -> scene -> supports
+    from .slicer import MeshSlicer             # local import: slicer -> scene -> supports
 
     lo, hi = mesh.bounds
     layer = min(max(layer_height, 0.005), step)
@@ -841,9 +906,17 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
     pending = Polygon()                        # overhang area still without support
     anchoring: list[dict] = []                 # small islands being followed up for anchors
 
+    discs: dict = {}                           # the disc each support holds, made once
+
+    def disc(x: float, y: float) -> Polygon:
+        d = discs.get((x, y))
+        if d is None:
+            d = discs[(x, y)] = Point(x, y).buffer(radius, 16)
+        return d
+
     def covered(z: float, window: float):
-        discs = [Point(x, y).buffer(radius, 16) for x, y, zz, _k in out if z - zz <= window]
-        return unary_union(discs) if discs else Polygon()
+        held = [disc(x, y) for x, y, zz, _k in out if z - zz <= window]
+        return unary_union(held) if held else Polygon()
 
     def add(x: float, y: float, z: float, kind: str) -> None:
         out.append((x, y, z, kind))
@@ -892,8 +965,9 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
     prev_step = MultiPolygon()                 # the slice one analysis step down (overhangs)
     z = lo[2] + layer / 2
     first, k = True, 0
+    slicer = MeshSlicer(mesh)
     while z < hi[2]:
-        cur = slice_mesh_at(mesh, z)
+        cur = slicer.at(z)
         if not cur.is_empty and not (first and on_plate):
             islands = []
             for poly in _polys(cur):
@@ -933,7 +1007,7 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
                         while part.area > min_area and guard < 50:
                             c = polylabel(part, tolerance=0.05)
                             add(c.x, c.y, z, "overhang")
-                            part = _safe(shapely.difference, part, Point(c.x, c.y).buffer(radius, 16))
+                            part = _safe(shapely.difference, part, disc(c.x, c.y))
                             guard += 1
                     pending = _safe(shapely.difference, pending, covered(z, pitch))
                 anchoring = [island for island in anchoring if follow(island, cur, prev_step)]

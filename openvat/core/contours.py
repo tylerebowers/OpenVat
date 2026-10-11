@@ -22,17 +22,30 @@ from shapely.ops import unary_union
 SNAP = 1e-4          # mm, grid used to merge coincident endpoints
 
 
+def _node_ids(pts: np.ndarray) -> np.ndarray:
+    """One id per point, the same for points that snap to the same grid
+    point (``SNAP``)."""
+    keys = np.round(pts / SNAP).astype(np.int64)
+    k0, k1 = keys[:, 0] - keys[:, 0].min(), keys[:, 1] - keys[:, 1].min()
+    span = int(k1.max()) + 1
+    if int(k0.max()) < (1 << 62) // span:                 # both in one integer: a plain 1-D sort
+        _, inverse = np.unique(k0 * span + k1, return_inverse=True)
+    else:
+        _, inverse = np.unique(keys, axis=0, return_inverse=True)
+    return inverse.reshape(-1)
+
+
 def chain_segments(segments: np.ndarray, labels: np.ndarray | None = None):
     """segments: (N, 2, 2) array of 2D segments -> list of closed loops,
     each an (M, 2) array of points (first point not repeated at the end).
-    With ``labels`` (one per segment) returns (loops, label of each loop)."""
+    With ``labels`` (one per segment) returns (loops, label of each loop).
+
+    Each loop starts at the lowest-numbered segment not used yet, runs from
+    its first end to its second, and at every point takes the
+    lowest-numbered unused segment there."""
     if len(segments) == 0:
         return ([], []) if labels is not None else []
-    pts = segments.reshape(-1, 2)
-    keys = np.round(pts / SNAP).astype(np.int64)
-    # map each distinct snapped point to an index
-    _, inverse = np.unique(keys, axis=0, return_inverse=True)
-    inverse = inverse.reshape(-1, 2)          # (N, 2) node ids per segment
+    inverse = _node_ids(segments.reshape(-1, 2)).reshape(-1, 2)     # (N, 2) node ids per segment
 
     # drop zero-length segments
     keep = inverse[:, 0] != inverse[:, 1]
@@ -43,35 +56,43 @@ def chain_segments(segments: np.ndarray, labels: np.ndarray | None = None):
     if n == 0:
         return ([], []) if labels is not None else []
 
-    adjacency: dict[int, list[int]] = {}
-    for i, (a, b) in enumerate(inverse):
-        adjacency.setdefault(int(a), []).append(i)
-        adjacency.setdefault(int(b), []).append(i)
+    # the segments at each point, lowest-numbered first (plain lists: the walk is a Python loop)
+    ends = inverse.ravel()
+    order = np.argsort(ends, kind="stable")
+    first = np.searchsorted(ends[order], np.arange(int(ends.max()) + 2)).tolist()
+    at = (order // 2).tolist()
+    nodes = inverse.tolist()
+    flat = segments.reshape(-1, 2)
 
-    used = np.zeros(n, dtype=bool)
+    used = bytearray(n)
     loops: list[np.ndarray] = []
     loop_labels: list = []
     for start in range(n):
         if used[start]:
             continue
-        used[start] = True
-        a, b = int(inverse[start, 0]), int(inverse[start, 1])
-        loop_pts = [segments[start, 0]]
-        first_node, node = a, b
+        used[start] = 1
+        first_node, node = nodes[start]
+        ends_taken = [2 * start]                          # (segment, end) as 2 * segment + end
         while node != first_node:
-            nxt = next((s for s in adjacency[node] if not used[s]), None)
-            if nxt is None:
+            nxt = -1
+            for k in range(first[node], first[node + 1]):
+                if not used[at[k]]:
+                    nxt = at[k]
+                    break
+            if nxt < 0:
                 break
-            used[nxt] = True
-            s0, s1 = int(inverse[nxt, 0]), int(inverse[nxt, 1])
+            used[nxt] = 1
+            s0, s1 = nodes[nxt]
             if s0 == node:
-                loop_pts.append(segments[nxt, 0]); node = s1
+                ends_taken.append(2 * nxt)
+                node = s1
             else:
-                loop_pts.append(segments[nxt, 1]); node = s0
-        if len(loop_pts) >= 3:
+                ends_taken.append(2 * nxt + 1)
+                node = s0
+        if len(ends_taken) >= 3:
             # Open chains (from non-watertight meshes) are closed with a
             # straight line - better a slightly wrong layer than a missing one.
-            loops.append(np.asarray(loop_pts, dtype=np.float64))
+            loops.append(np.asarray(flat[ends_taken], dtype=np.float64))
             if labels is not None:
                 loop_labels.append(labels[start])
     return (loops, loop_labels) if labels is not None else loops

@@ -280,6 +280,55 @@ def slice_mesh_at(mesh: trimesh.Trimesh, z: float, shells: np.ndarray | None = N
     return segments_to_multipolygon(segments[:, :, :2], shells[faces])
 
 
+class MeshSlicer:
+    """Cross-sections of one mesh at many heights - the same as
+    ``slice_mesh_at`` for each, without looking at every face every time.
+
+    Each slice hands trimesh only the faces whose z range reaches that
+    height, in their original order, so the segments (and so the outline)
+    come out exactly as from the whole mesh.  The faces are kept sorted by
+    their lowest point; the few much taller than the rest are kept apart and
+    always checked, so the sorted ones can be found from a short window."""
+
+    def __init__(self, mesh: trimesh.Trimesh, shells: np.ndarray | None = None):
+        self.mesh, self.shells = mesh, shells
+        z = np.asarray(mesh.vertices)[np.asarray(mesh.faces)][:, :, 2] if len(mesh.faces) else np.zeros((0, 3))
+        self.zmin, self.zmax = z.min(axis=1), z.max(axis=1)
+        h = self.zmax - self.zmin
+        tall = h > max(8.0 * float(np.median(h)), 1e-6) if len(h) else np.zeros(0, bool)
+        self.tall = np.flatnonzero(tall)
+        short = np.flatnonzero(~tall)
+        self.short = short[np.argsort(self.zmin[short], kind="stable")]
+        self.short_zmin = self.zmin[self.short]
+        self.reach = float(h[short].max()) if len(short) else 0.0
+        self.pad = 1e-6 * (1.0 + float(np.abs(z).max())) if len(z) else 1e-6   # well above trimesh's tolerance
+        self.vz = np.ascontiguousarray(np.asarray(mesh.vertices, dtype=np.float64)[:, 2])
+
+    def faces_at(self, z: float) -> np.ndarray:
+        """Faces (in increasing order) that may cross the plane at height z."""
+        a = np.searchsorted(self.short_zmin, z - self.pad - self.reach, side="left")
+        b = np.searchsorted(self.short_zmin, z + self.pad, side="right")
+        near = self.short[a:b]
+        near = near[self.zmax[near] >= z - self.pad]
+        tall = self.tall[(self.zmin[self.tall] <= z + self.pad) & (self.zmax[self.tall] >= z - self.pad)]
+        return np.sort(np.concatenate([near, tall]))
+
+    def at(self, z: float) -> MultiPolygon:
+        faces = self.faces_at(z)
+        if len(faces) == 0:
+            return MultiPolygon()
+        dots = self.vz - z                                # what trimesh would work out: the height above z
+        if self.shells is None:
+            segments = trimesh.intersections.mesh_plane(self.mesh, plane_normal=[0, 0, 1], plane_origin=[0, 0, z],
+                                                        local_faces=faces, cached_dots=dots)
+            return segments_to_multipolygon(segments[:, :, :2]) if len(segments) else MultiPolygon()
+        segments, index = trimesh.intersections.mesh_plane(self.mesh, plane_normal=[0, 0, 1], plane_origin=[0, 0, z],
+                                                           return_faces=True, local_faces=faces, cached_dots=dots)
+        if len(segments) == 0:
+            return MultiPolygon()
+        return segments_to_multipolygon(segments[:, :, :2], self.shells[index])
+
+
 def _union(parts: list) -> MultiPolygon:
     """Union that survives slightly invalid input (slivers from meshes)."""
     if not parts:
@@ -321,12 +370,14 @@ def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
     # 1. cut every layer: the plain geometry united, hollowed models kept apart
     plain: list[MultiPolygon] = []
     solids: list[list] = [[] for _ in jobs]
+    slicers = [(MeshSlicer(m, shells), m.bounds) for m, shells in meshes]
+    job_slicers = [MeshSlicer(job.mesh) for job in jobs]
     for p, z in zip(schedule, zc):
-        parts = [slice_mesh_at(m, z, shells) for m, shells in meshes if m.bounds[0][2] <= z <= m.bounds[1][2]]
+        parts = [sl.at(z) for sl, b in slicers if b[0][2] <= z <= b[1][2]]
         plain.append(_union([g for g in parts if not g.is_empty]))
-        for job, out in zip(jobs, solids):
+        for job, sl, out in zip(jobs, job_slicers, solids):
             lo, hi = job.mesh.bounds
-            out.append(slice_mesh_at(job.mesh, z) if lo[2] <= z <= hi[2] else None)
+            out.append(sl.at(z) if lo[2] <= z <= hi[2] else None)
         if progress:
             progress(p["index"] + 1, total)
 

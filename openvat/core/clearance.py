@@ -72,16 +72,19 @@ class ClearanceField:
         q = (p - self.offset - self.origin) / self.cell - 0.5
         base = np.floor(q).astype(np.int64)
         frac = q - base
-        shape = np.array(self.shape)
+        flat = self.dist.reshape(-1)
+        nx, ny, nz = self.shape
+        # per axis: the lower and the upper neighbour - index (clipped), inside the grid?, weight
+        axes = []
+        for a, n in enumerate((nx, ny, nz)):
+            lo, hi = base[:, a], base[:, a] + 1
+            axes.append(((np.clip(lo, 0, n - 1), (lo >= 0) & (lo < n), 1.0 - frac[:, a]),
+                         (np.clip(hi, 0, n - 1), (hi >= 0) & (hi < n), frac[:, a])))
         out = np.zeros(len(p))
-        for corner in np.ndindex(2, 2, 2):
-            idx = base + corner
-            ok = np.all((idx >= 0) & (idx < shape), axis=1)
-            val = np.full(len(p), self.cap)
-            i = idx[ok]
-            val[ok] = self.dist[i[:, 0], i[:, 1], i[:, 2]]
-            w = np.prod(np.where(corner, frac, 1.0 - frac), axis=1)
-            out += w * val
+        for cx, cy, cz in np.ndindex(2, 2, 2):            # same order and arithmetic as one corner at a time
+            (ix, okx, wx), (iy, oky, wy), (iz, okz, wz) = axes[0][cx], axes[1][cy], axes[2][cz]
+            val = np.where(okx & oky & okz, flat[(ix * ny + iy) * nz + iz], np.float64(self.cap))
+            out += ((wx * wy) * wz) * val
         return out
 
     def segment_clear(self, p0, p1, clearance: float) -> bool:
