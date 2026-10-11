@@ -1,6 +1,6 @@
 ![OpenVat](docs/logos/OPENVAT_nbg.png)
 
-A FOSS resin slicer with support for Anycubic **`.pwsz`** (`.pwsz`, `.pm7`, `.pm7m`, `.pm4u`, `.pp1`, `.pp1m`) and binary files of versions 1, 516 and 517 (**`.pwx`**, `.pw0`, **`.pm3m`**, `.pm3`, `.pwmx`, `.pwma`, **`.dl2p`**, `.pwmb`, `.pm3r`, `.pm3n`, `.pm4n`, `.pm5`, `.pmx2`, `.px6s`, ...).  
+A FOSS resin slicer with support for Anycubic Printers (support for Elegoo and Phrozen planned, need someone to help test).  
 Runs on Linux, Windows and macOS.
 
 ![home_view](docs/screenshots/home_view.png)
