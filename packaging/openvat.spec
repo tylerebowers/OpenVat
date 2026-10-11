@@ -46,13 +46,29 @@ a = Analysis(
     noarchive=False,
 )
 if sys.platform.startswith("linux"):
-    # Use the system's C++ runtime, never the build machine's: Mesa's GPU drivers
-    # (Intel iris, AMD radeonsi, ...) need the one they were built against, and an
-    # older bundled copy makes them fail to load - OpenGL then silently falls back
-    # to software rendering.  Every desktop has these, at least as new as the
-    # oldest distribution we build on.
-    a.binaries = [b for b in a.binaries
-                  if not Path(b[0]).name.startswith(("libstdc++.so", "libgcc_s.so"))]
+    # Libraries that must be the desktop's own, never the build machine's (the
+    # AppImage project's exclude list, github.com/AppImageCommunity/pkg2appimage,
+    # file "excludelist").  Every Linux desktop has them, at least as new as on
+    # the oldest distribution we build on:
+    # - fonts: an old bundled fontconfig reads the desktop's newer font
+    #   configuration and font files - text came out in the wrong font or not
+    #   at all; FreeType and HarfBuzz must match that fontconfig;
+    # - the C++ runtime: Mesa's GPU drivers (Intel iris, AMD radeonsi, ...) need
+    #   the one they were built against, and an older bundled copy makes them
+    #   fail to load - OpenGL then silently falls back to software rendering;
+    # - X11 / OpenGL / Wayland and the rest of the base system.
+    # Renamed private copies that wheels ship (libfreetype-1a2b3c4d.so.6, ...)
+    # are only loaded by their own module and stay.
+    HOST_LIBS = {
+        "libstdc++.so.6", "libgcc_s.so.1",
+        "libfontconfig.so.1", "libfreetype.so.6", "libharfbuzz.so.0", "libfribidi.so.0", "libexpat.so.1",
+        "libGL.so.1", "libEGL.so.1", "libGLdispatch.so.0", "libGLX.so.0", "libOpenGL.so.0", "libglapi.so.0",
+        "libdrm.so.2", "libgbm.so.1", "libwayland-client.so.0", "libxcb.so.1", "libxcb-dri2.so.0",
+        "libxcb-dri3.so.0", "libX11.so.6", "libX11-xcb.so.1", "libICE.so.6", "libSM.so.6",
+        "libz.so.1", "libuuid.so.1", "libcom_err.so.2", "libgpg-error.so.0", "libgmp.so.10",
+        "libasound.so.2", "libjack.so.0", "libpipewire-0.3.so.0", "libusb-1.0.so.0",
+    }
+    a.binaries = [b for b in a.binaries if Path(b[0]).name not in HOST_LIBS]
 
 pyz = PYZ(a.pure)
 
