@@ -84,8 +84,7 @@ class _ProfileDialog(QDialog):
                 self._show_group("")
         body.addWidget(editor, stretch=1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save if adding else QDialogButtonBox.Ok)
-        buttons.addButton(QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -249,7 +248,38 @@ class ResinDialog(_ProfileDialog):
             sp = _double(0.5, 1.5, 0.001, 4); sp.setPrefix(f"{axis} ")
             sl.addWidget(sp); self.shrink.append(sp)
         form.addRow("Shrinkage compensation (scale)", shrink)
-        root.addWidget(extra)
+
+        stretch = QGroupBox("Z stretch (first layers)")
+        form = QFormLayout(stretch)
+        self.stretch_height = _double(0, 500, 0.5, 2)
+        self.stretch_height.setSuffix(" mm")
+        self.stretch_height.setSpecialValueText("Off")
+        self.stretch_factor = _double(0.5, 2.0, 0.01, 3)
+        self.stretch_factor.setPrefix("× ")
+        tip = ("The vat film pushes back against the build plate, so the first layers\n"
+               "often come out thinner than set and the part ends up short in Z.\n"
+               "Z stretch prints the lowest part of the build taller to make up for it.\n\n"
+               "Height: how far up from the build plate to stretch (mm, supports\n"
+               "and raft included). 0 = off.\n"
+               "Factor: how much taller that part prints. 1.05 = 5 % taller;\n"
+               "below 1 squeezes it instead.\n\n"
+               "Everything above the stretched part keeps its size and moves up.\n"
+               "Example: 2 mm × 1.1 prints the lowest 2 mm as 2.2 mm, so the whole\n"
+               "print is 0.2 mm taller.")
+        for label, w in (("Height from the plate", self.stretch_height), ("Stretch factor", self.stretch_factor)):
+            w.setToolTip(tip)
+            form.addRow(label, w)
+            form.labelForField(w).setToolTip(tip)
+        self.stretch_note = QLabel()
+        self.stretch_note.setStyleSheet("color: #888;")
+        self.stretch_note.setWordWrap(True)
+        form.addRow(self.stretch_note)
+        self.stretch_height.valueChanged.connect(self._stretch_changed)
+        self.stretch_factor.valueChanged.connect(self._stretch_changed)
+        row = QHBoxLayout()
+        row.addWidget(extra)
+        row.addWidget(stretch)
+        root.addLayout(row)
 
         intro = f"Resin profile for <b>{printer_name}</b>" if printer_name else ""
         super().__init__("Resin profile", editor, presets, parent, preset_group=printer_name, intro=intro)
@@ -269,6 +299,19 @@ class ResinDialog(_ProfileDialog):
         self.aa.setCurrentIndex(max(self.aa.findData(int(resin.anti_aliasing)), 0))
         for sp, v in zip(self.shrink, (resin.shrink_x, resin.shrink_y, resin.shrink_z)):
             sp.setValue(v)
+        self.stretch_height.setValue(resin.stretch_height)
+        self.stretch_factor.setValue(resin.stretch_factor)
+        self._stretch_changed()
+
+    def _stretch_changed(self) -> None:
+        h, f = self.stretch_height.value(), self.stretch_factor.value()
+        self.stretch_factor.setEnabled(h > 0)
+        if h <= 0 or f == 1.0:
+            self.stretch_note.setText("Off: every layer prints at the model's own height.")
+        else:
+            d = h * (f - 1)
+            self.stretch_note.setText(f"The lowest {h:g} mm prints as {h * f:.2f} mm, so the whole "
+                                      f"print is {abs(d):.2f} mm {'taller' if d > 0 else 'shorter'}.")
 
     def result_profile(self) -> ResinProfile:
         return ResinProfile(
@@ -286,4 +329,6 @@ class ResinDialog(_ProfileDialog):
             shrink_x=self.shrink[0].value(),
             shrink_y=self.shrink[1].value(),
             shrink_z=self.shrink[2].value(),
+            stretch_height=self.stretch_height.value(),
+            stretch_factor=self.stretch_factor.value(),
         )

@@ -154,6 +154,12 @@ class ResinProfile:
     shrink_x: float = 1.0            # shrinkage compensation scale factors
     shrink_y: float = 1.0
     shrink_z: float = 1.0
+    # Z stretch: the lowest stretch_height mm of the build (measured from the
+    # plate, supports and raft included) print stretch_factor times taller;
+    # everything above moves up by the difference.  For the first layers,
+    # which the vat film squeezes thinner than set.  0 / 1.0 = off.
+    stretch_height: float = 0.0
+    stretch_factor: float = 1.0
 
     def total_bottom_layers(self) -> int:
         return self.bottom_layers

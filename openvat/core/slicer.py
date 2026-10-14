@@ -7,6 +7,8 @@ rasterizes on demand.
 
 Pipeline for one layer:
     1. intersect every world-space mesh with the plane z = layer center
+       (with a resin Z stretch: the model height that layer stands for,
+       see ``unstretched_z``)
     2. chain the resulting segments into closed polygons (with holes)
     3. union the polygons of all objects/supports
     4. bottom layers: elephant-foot compensation - every edge is moved
@@ -266,6 +268,36 @@ def _apply_shrink(m: trimesh.Trimesh, resin: ResinProfile) -> trimesh.Trimesh:
     return m
 
 
+def _z_stretch(resin: ResinProfile) -> tuple[float, float] | None:
+    """(height, factor) of the resin's Z stretch, None when it is off."""
+    h, f = float(resin.stretch_height), float(resin.stretch_factor)
+    if h <= 0 or f <= 0 or f == 1.0:
+        return None
+    return h, f
+
+
+def stretched_z(z, resin: ResinProfile) -> np.ndarray:
+    """Model height -> print height: up to ``stretch_height`` everything is
+    ``stretch_factor`` times taller, above that shifted up by the difference."""
+    z = np.asarray(z, dtype=float)
+    s = _z_stretch(resin)
+    if s is None:
+        return z
+    h, f = s
+    return np.where(z <= h, z * f, z + h * (f - 1))
+
+
+def unstretched_z(z, resin: ResinProfile) -> np.ndarray:
+    """Print height -> model height (the inverse of ``stretched_z``): where a
+    layer printed at height z cuts the model."""
+    z = np.asarray(z, dtype=float)
+    s = _z_stretch(resin)
+    if s is None:
+        return z
+    h, f = s
+    return np.where(z <= h * f, z / f, z - h * (f - 1))
+
+
 def slice_mesh_at(mesh: trimesh.Trimesh, z: float, shells: np.ndarray | None = None) -> MultiPolygon:
     """Cross-section of one mesh at height z as a MultiPolygon.  With
     ``shells`` (see ``shell_labels``) every closed shell is outlined on its
@@ -362,10 +394,12 @@ def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
 
     bounds = scene.bounds()
     height = max(m.bounds[1][2] for m in [m for m, _shells in meshes] + [j.mesh for j in jobs])
-    schedule = layer_schedule(height, resin)
+    schedule = layer_schedule(float(stretched_z(height, resin)), resin)
     n = len(schedule)
     total = n * (1 + len(jobs))
-    zc = np.array([p["z_bottom"] + p["thickness"] / 2 for p in schedule])
+    # layer centers on the printer, and where those layers cut the model
+    # (the same unless the resin stretches the lowest layers in Z)
+    zc = unstretched_z([p["z_bottom"] + p["thickness"] / 2 for p in schedule], resin)
 
     # 1. cut every layer: the plain geometry united, hollowed models kept apart
     plain: list[MultiPolygon] = []

@@ -538,6 +538,43 @@ def test_z_shrink_compensation():
     assert result.height == pytest.approx(11.0, abs=0.05)     # 10 mm cube printed 10 % taller
 
 
+def test_z_stretch_prints_the_lowest_layers_taller():
+    from dataclasses import asdict, replace
+    from openvat.core.profiles import resin_from_dict
+    from openvat.core.slicer import stretched_z, unstretched_z, slice_mesh_at
+    plain = ResinProfile(shrink_x=1.0, shrink_y=1.0, shrink_z=1.0)
+    plain.bottom.thickness = plain.normal.thickness = 0.05
+    stretch = replace(plain, stretch_height=2.0, stretch_factor=1.1)
+    # older profiles have no stretch settings: off
+    old = resin_from_dict({"name": "old"})
+    assert (old.stretch_height, old.stretch_factor) == (0.0, 1.0)
+    assert resin_from_dict(asdict(stretch)).stretch_factor == 1.1
+    # the mapping (model height -> print height) and its inverse
+    z = np.array([0.0, 1.0, 2.0, 3.0, 10.0])
+    assert stretched_z(z, stretch) == pytest.approx([0.0, 1.1, 2.2, 3.2, 10.2])
+    assert unstretched_z(stretched_z(z, stretch), stretch) == pytest.approx(z)
+    assert stretched_z(z, plain) == pytest.approx(z)
+    # a cone, so every layer's outline depends on its height
+    scene = Scene()
+    cone = MeshObject("cone", trimesh.creation.cone(radius=8, height=10, sections=64))
+    cone.center_on_plate()
+    cone.drop_to_plate()
+    scene.add(cone)
+    a = slice_scene(scene, PrinterProfile(), plain)
+    b = slice_scene(scene, PrinterProfile(), stretch)
+    assert a.height == pytest.approx(10.0, abs=0.01)
+    assert b.height == pytest.approx(10.2, abs=0.01)         # the lowest 2 mm print as 2.2 mm
+    assert len(b.layers) == len(a.layers) + 4
+    # the stretched part: 44 layers that cut the model at 1/1.1 of their height
+    mesh = cone.transformed()
+    for layer in b.layers[:44:5]:
+        assert layer.area == pytest.approx(slice_mesh_at(mesh, layer.z_center / 1.1).area, rel=1e-6)
+    # above it: the same layers as without stretch, 0.2 mm higher
+    for la, lb in zip(a.layers[40:], b.layers[44:]):
+        assert lb.z_bottom == pytest.approx(la.z_bottom + 0.2)
+        assert lb.area == pytest.approx(la.area, rel=1e-6)
+
+
 
 def test_support_bulbs_flat_contacts_and_splitting():
     from openvat.core.placement import generate_supports
