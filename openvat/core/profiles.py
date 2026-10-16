@@ -131,6 +131,13 @@ class LayerSettings:
     lift_distance: float = 8.0       # mm
     lift_speed: float = 6.0          # mm/s
     retract_speed: float = 6.0       # mm/s
+    # scale compensation for these layers: X/Y scale each model's outline
+    # about the model's own center; Z: each layer stands for thickness / Z
+    # of the model (1.01 = 1 % bigger / taller).  Transition layers ramp
+    # from the bottom values to the normal ones.
+    scale_x: float = 1.0
+    scale_y: float = 1.0
+    scale_z: float = 1.0
 
 
 @dataclass
@@ -147,13 +154,9 @@ class ResinProfile:
         thickness=0.05, exposure=20.0, off_time=30.0,
         wait_before_lift=15.0, wait_after_lift=15.0))
     bottom_layers: int = 3
-    elephant_foot_mm: float = 0.0    # bottom layers: every edge moved inward by this (polygon offset)
 
-    transition_layers: int = 0       # layers that ramp bottom -> normal exposure
+    transition_layers: int = 0       # layers that ramp bottom -> normal exposure and scale
     anti_aliasing: int = 1           # 1 = off; the printer firmware does the AA
-    shrink_x: float = 1.0            # shrinkage compensation scale factors
-    shrink_y: float = 1.0
-    shrink_z: float = 1.0
     # Z stretch: the lowest stretch_height mm of the build (measured from the
     # plate, supports and raft included) print stretch_factor times taller;
     # everything above moves up by the difference.  For the first layers,
@@ -190,7 +193,27 @@ def printer_from_dict(d: dict) -> PrinterProfile:
 
 
 def resin_from_dict(d: dict) -> ResinProfile:
-    return _from_dict(ResinProfile, d)
+    return _from_dict(ResinProfile, _upgrade_resin(d))
+
+
+def _upgrade_resin(d: dict) -> dict:
+    """Older resin profiles had one set of scale factors for every layer
+    (shrink_x/y/z) and an elephant-foot edge offset for the bottom layers.
+    The scale factors become those of both the bottom and the normal layers
+    (so the print stays the same); the edge offset has no scale equivalent
+    and is dropped."""
+    old = {axis: d[f"shrink_{axis}"] for axis in "xyz" if f"shrink_{axis}" in d}
+    if not old:
+        return d
+    d = dict(d)
+    for kind in ("normal", "bottom"):
+        given = d.get(kind) if isinstance(d.get(kind), dict) else {}
+        layer = dict(given) if given else asdict(getattr(ResinProfile(), kind))
+        for axis, value in old.items():
+            if f"scale_{axis}" not in given:             # new-style values win
+                layer[f"scale_{axis}"] = value
+        d[kind] = layer
+    return d
 
 
 def safe_filename(name: str) -> str:

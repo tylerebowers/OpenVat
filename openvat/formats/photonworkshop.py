@@ -101,14 +101,16 @@ def resin_from_photonworkshop(entry: dict) -> ResinProfile:
     # transition_layercount only applies when transition_type != 0 (a sample
     # export with count 15 / type 0 jumps straight to the normal exposure).
     transition = int(ext.get("transition_layercount", 0)) if ext.get("transition_type", 0) else 0
+    # PhotonWorkshop has one set of scale factors for every layer
     scale = ext.get("material_scale_xyz", {"x": 1.0, "y": 1.0, "z": 1.0})
+    for layer in (normal, bottom):
+        layer.scale_x, layer.scale_y, layer.scale_z = (round(scale[a], 5) for a in "xyz")
     return ResinProfile(
         name=name, brand=brand, density=round(prop.get("density", 1.1), 3),
         price_per_liter=round(prop.get("price", 0.0) * 1000.0 / max(prop.get("volume", 1000.0), 1.0), 2),
         currency=prop.get("currency", "$"), normal=normal, bottom=bottom,
         bottom_layers=int(sp["bott_layers"]), transition_layers=transition,
-        anti_aliasing=max(int(sp.get("anti_count", 1)), 1),
-        shrink_x=round(scale["x"], 5), shrink_y=round(scale["y"], 5), shrink_z=round(scale["z"], 5))
+        anti_aliasing=max(int(sp.get("anti_count", 1)), 1))
 
 
 def resins_from_pwsp(pwsp: dict, include_user: bool = False) -> list[ResinProfile]:

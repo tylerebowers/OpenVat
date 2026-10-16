@@ -5,14 +5,18 @@ Responsibilities:
     * orbit / pan / zoom with the mouse
     * pick objects and supports with the mouse and drag them across the plate
     * "add support" mode: clicking on a model adds a support at that point
+    * on the selected model: move arrows and rotate rings (see gizmos.py),
+      and "lay on face", which highlights the faces it can lie on
 
 Mouse: left = select / drag, right = orbit, middle (or shift+left) = pan,
-wheel = zoom.
+wheel = zoom.  Dragging an arrow moves the model along that axis, a ring
+turns it about that axis (Ctrl: whole mm / 15 degree steps).
 """
 
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import sys
 
@@ -30,12 +34,14 @@ from PySide6.QtWidgets import QWidget, QApplication
 
 from ..core.hollow import hole_world, hole_depth, lattice_segments, cavity_clip, tubes
 from ..core.mesh import MeshObject
+from ..core.orient import DOWN, flat_faces, rotated_about
 from ..core.profiles import PrinterProfile
 from ..core.raycast import ray_mesh_closest, ray_mesh_first
 from ..core.scene import Scene
 from ..core.placement import snap_support
 from ..core.supports import Support
 from .camera import OrbitCamera, ray_plane_z
+from . import gizmos
 from .glplatform import default_surface_format  # noqa: F401  (re-exported)
 from .theme_colors import DEFAULT_THEME_COLORS, DEFAULT_COLORS  # noqa: F401
 
@@ -237,6 +243,7 @@ class Viewport3D(QOpenGLWidget):
     object_moved = Signal()
     support_requested = Signal(object, object)   # (MeshObject, hit point)
     hole_requested = Signal(object, object, object)   # (MeshObject, hit point, outward face normal)
+    lay_face_requested = Signal(object, object)  # (MeshObject, world normal of the face to put down)
     gl_started = Signal()                        # OpenGL is up; GL_INFO is filled
 
     def __init__(self, scene: Scene, parent=None, interactive: bool = True):
@@ -252,6 +259,14 @@ class Viewport3D(QOpenGLWidget):
         self.show_inside = False                # hollow models see-through with their internal supports
         self._hole_buffers: dict[int, tuple[tuple, GLBuffer | None]] = {}
         self._lattice_buffers: dict[int, tuple[tuple, GLBuffer | None, np.ndarray]] = {}
+        self.show_move = False                  # move arrows on the selected model
+        self.show_rotate = False                # rotate rings on the selected model
+        self.lay_face_mode = False              # its flat faces highlighted: a click lays it on one
+        self._gizmo_buffers: tuple[GLBuffer, GLBuffer] | None = None    # unit arrow, unit ring
+        self._flat: dict[int, tuple] = {}       # obj id -> (mesh, [FlatFace]) it can be laid on
+        self._flat_buffers: dict[int, tuple] = {}   # obj id -> (mesh, [GLBuffer]) of those faces
+        self._hover = None                      # ("move" | "rotate", axis) or ("face", index) under the mouse
+        self._gizmo_drag: dict | None = None    # while an arrow or ring is dragged
         self.setMinimumSize(400, 300)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(False)
@@ -376,6 +391,8 @@ class Viewport3D(QOpenGLWidget):
         self._draw(self._plate_fill, np.eye(4), vp, fill, lit=False)
         GL.glDepthMask(GL.GL_TRUE)
         self._draw(self._plate, np.eye(4), vp, grid, lit=False)
+        if self._gizmo_object() is not None and (self.show_move or self.show_rotate):
+            self._draw_gizmos(vp)
         GL.glUseProgram(0)
         GL.glBindVertexArray(0)
         cube = self._overlay
@@ -419,6 +436,8 @@ class Viewport3D(QOpenGLWidget):
         if sel is not None:
             self._draw(self._support_mesh_for(sel), np.eye(4), vp, self.colors["support_selected"])
         self._draw(self._support_buffer(), np.eye(4), vp, self.colors["support"])
+        if self.lay_face_mode and self._gizmo_object() is not None:
+            self._draw_flat_faces(self._gizmo_object(), vp)
 
         for obj in self.scene.objects:            # drain holes, and inside: the internal supports
             if not obj.visible:
@@ -441,6 +460,224 @@ class Viewport3D(QOpenGLWidget):
             GL.glDepthMask(GL.GL_TRUE)
             GL.glCullFace(GL.GL_BACK)
         GL.glDisable(GL.GL_CULL_FACE)
+
+    # ------------------------------------------------------------ gizmos
+    def set_tools(self, move: bool | None = None, rotate: bool | None = None,
+                  lay_face: bool | None = None) -> None:
+        """Show / hide the move arrows and rotate rings, and turn "lay on
+        face" on or off (None: leave as it is)."""
+        if move is not None:
+            self.show_move = move
+        if rotate is not None:
+            self.show_rotate = rotate
+        if lay_face is not None:
+            self.lay_face_mode = lay_face
+        self._hover = None
+        self.setMouseTracking(self.show_move or self.show_rotate or self.lay_face_mode)   # hover highlight
+        self.update()
+
+    def _gizmo_object(self) -> MeshObject | None:
+        """The model the tools work on: the selected one, if shown."""
+        obj = self.scene.selected
+        if not self.interactive or obj is None or not obj.visible or obj not in self.scene.objects:
+            return None
+        return obj
+
+    def _draw_gizmos(self, vp: np.ndarray) -> None:
+        """Arrows and rings at the selected model's center, over everything
+        else (the depth buffer is cleared first, so they still hide each
+        other correctly)."""
+        obj = self._gizmo_object()
+        center = np.asarray(obj.position, float)
+        if self._gizmo_buffers is None:
+            self._gizmo_buffers = (GLBuffer.from_trimesh(gizmos.arrow_mesh()),
+                                   GLBuffer.from_trimesh(gizmos.ring_mesh()))
+        arrow, ring = self._gizmo_buffers
+        active = self._gizmo_drag["handle"] if self._gizmo_drag else self._hover
+        GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
+        for kind, buf, px, shown in (("rotate", ring, gizmos.RING_PX, self.show_rotate),
+                                     ("move", arrow, gizmos.ARROW_PX, self.show_move)):
+            if not shown:
+                continue
+            size = gizmos.world_size(self.camera, center, px, self.height())
+            for axis in range(3):
+                color = gizmos.HOVER_COLOR if active == (kind, axis) else gizmos.AXIS_COLORS[axis]
+                self._draw(buf, gizmos.model_matrix(center, axis, size), vp, color)
+
+    def _flat_faces_of(self, obj: MeshObject) -> list:
+        """The faces the model can be laid on (worked out once per mesh)."""
+        entry = self._flat.get(obj.id)
+        if entry is None or entry[0] is not obj.mesh:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                entry = (obj.mesh, flat_faces(obj.mesh))
+            finally:
+                QApplication.restoreOverrideCursor()
+            self._flat[obj.id] = entry
+        return entry[1]
+
+    def lay_candidates(self, obj: MeshObject) -> list[tuple[int, np.ndarray]]:
+        """(index, world normal) of the faces to offer: all but the one the
+        model already lies on."""
+        m = obj.matrix()[:3, :3]
+        to_world = np.linalg.inv(m).T                     # normals follow the inverse transpose
+        out = []
+        for i, f in enumerate(self._flat_faces_of(obj)):
+            n = to_world @ f.normal
+            n = n / np.linalg.norm(n)
+            if n @ DOWN < 1 - 1e-6:
+                out.append((i, n))
+        return out
+
+    def _draw_flat_faces(self, obj: MeshObject, vp: np.ndarray) -> None:
+        faces = self._flat_faces_of(obj)
+        entry = self._flat_buffers.get(obj.id)
+        if entry is None or entry[0] is not obj.mesh:
+            if entry:
+                for b in entry[1]:
+                    b.release()
+            mesh = obj.mesh
+            entry = (mesh, [GLBuffer.triangles(mesh.vertices, mesh.faces[f.faces], mesh.face_normals[f.faces])
+                            for f in faces])
+            self._flat_buffers[obj.id] = entry
+        model = obj.matrix()
+        GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)            # drawn on the model's own surface
+        GL.glPolygonOffset(-1.0, -4.0)
+        GL.glDepthFunc(GL.GL_LEQUAL)
+        GL.glDepthMask(GL.GL_FALSE)
+        for i, _n in self.lay_candidates(obj):
+            color = gizmos.FACE_HOVER_COLOR if self._hover == ("face", i) else gizmos.FACE_COLOR
+            self._draw(entry[1][i], model, vp, color, lit=False)
+        GL.glDepthMask(GL.GL_TRUE)
+        GL.glDepthFunc(GL.GL_LESS)
+        GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
+
+    def _view_projection(self) -> np.ndarray:
+        return self.camera.projection_matrix() @ self.camera.view_matrix()
+
+    def _handle_at(self, pos: QPoint):
+        """The arrow or ring under the mouse, as ("move" | "rotate", axis)."""
+        obj = self._gizmo_object()
+        if obj is None or not (self.show_move or self.show_rotate):
+            return None
+        return gizmos.pick(self._view_projection(), self.camera, np.asarray(obj.position, float),
+                           self.width(), self.height(), (pos.x(), pos.y()), self.show_move, self.show_rotate)
+
+    def _face_at(self, pos: QPoint) -> tuple[int, np.ndarray] | None:
+        """In "lay on face" mode: the highlighted face under the mouse, as
+        (index, world normal).  A face is only seen from outside the model
+        (the whole model is behind its plane), so nothing of it can hide it."""
+        obj = self._gizmo_object()
+        if obj is None or not self.lay_face_mode:
+            return None
+        origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+        faces = self._flat_faces_of(obj)
+        m = obj.matrix()
+        best, best_t = None, np.inf
+        for i, n in self.lay_candidates(obj):
+            if n @ direction >= 0:
+                continue
+            local = obj.mesh.vertices[obj.mesh.faces[faces[i].faces]].reshape(-1, 3)
+            t = gizmos.ray_triangles(origin, direction, trimesh.transform_points(local, m).reshape(-1, 3, 3))
+            if t is not None and t < best_t:
+                best, best_t = (i, n), t
+        return best
+
+    def _update_hover(self, pos: QPoint) -> None:
+        hover = self._handle_at(pos)
+        if hover is None and self.lay_face_mode:
+            face = self._face_at(pos)
+            hover = ("face", face[0]) if face is not None else None
+        if hover != self._hover:
+            self._hover = hover
+            self.update()
+
+    def leaveEvent(self, _e) -> None:
+        if self._hover is not None and self._gizmo_drag is None:
+            self._hover = None
+            self.update()
+
+    def _start_gizmo_drag(self, handle, pos: QPoint) -> None:
+        obj = self._gizmo_object()
+        kind, axis = handle
+        e = np.eye(3)[axis]
+        drag = dict(handle=handle, obj=obj, undo=False, moved=False,
+                    start_pos=obj.position.copy(), start_rot=obj.rotation.copy())
+        if kind == "move":
+            origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+            drag["t0"] = gizmos.axis_parameter(origin, direction, drag["start_pos"], e)
+            drag["bottom"] = float(obj.world_bounds()[0][2] - obj.position[2])   # lowest point vs center
+        else:
+            # follow the mouse around the ring in its own plane; seen nearly
+            # edge-on, by the angle around the center on screen instead
+            origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+            drag["turned"] = 0.0
+            angle = gizmos.plane_angle(origin, direction, obj.position, axis)
+            drag["in_plane"] = angle is not None and abs(direction @ e) > gizmos.EDGE_ON
+            if drag["in_plane"]:
+                drag["last"] = angle
+            else:
+                c_px = gizmos.project(self._view_projection(), [obj.position], self.width(), self.height())[0][0]
+                drag["center_px"] = c_px
+                drag["last"] = gizmos.screen_angle(c_px, (pos.x(), pos.y()))
+                # counter-clockwise on screen is a positive turn when the axis points at the camera
+                drag["sign"] = 1.0 if e @ (self.camera.position() - obj.position) > 0 else -1.0
+        self._gizmo_drag = drag
+        self.update()
+
+    def _drag_gizmo(self, pos: QPoint, modifiers) -> None:
+        d = self._gizmo_drag
+        obj = d["obj"]
+        if obj not in self.scene.objects:
+            self._gizmo_drag = None
+            return
+        kind, axis = d["handle"]
+        e = np.eye(3)[axis]
+        fine = not (modifiers & Qt.ControlModifier)
+        if kind == "move":
+            if d["t0"] is None:                              # looking straight along the axis
+                return
+            origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+            t = gizmos.axis_parameter(origin, direction, d["start_pos"], e)
+            if t is None:
+                return
+            target = d["start_pos"].copy()
+            target[axis] += t - d["t0"]
+            if not fine:
+                target[axis] = round(target[axis])           # whole mm
+            if axis == 2:
+                target[2] = max(target[2], -d["bottom"])     # never below the plate
+            if np.allclose(target, obj.position):
+                return
+            if not d["undo"]:
+                self.scene.push_undo()
+                d["undo"] = True
+            self.scene.move_object(obj, target)
+        else:
+            if d["in_plane"]:
+                origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+                a = gizmos.plane_angle(origin, direction, d["start_pos"], axis)
+                if a is None:
+                    return
+                sign = 1.0
+            else:
+                a = gizmos.screen_angle(d["center_px"], (pos.x(), pos.y()))
+                sign = d["sign"]
+            d["turned"] += gizmos.unwrap(a - d["last"])
+            d["last"] = a
+            step = 1.0 if fine else 15.0
+            degrees = round(math.degrees(d["turned"]) * sign / step) * step
+            angles = rotated_about(d["start_rot"], e, degrees)
+            if np.allclose(angles, obj.rotation):
+                return
+            if not d["undo"]:
+                self.scene.push_undo()
+                d["undo"] = True
+            obj.rotation[:] = angles
+            obj.drop_to_plate()
+        d["moved"] = True
+        self.object_moved.emit()
+        self.update()
 
     # ------------------------------------------------------------ hollowing
     def _holes_for(self, obj: MeshObject) -> GLBuffer | None:
@@ -600,6 +837,15 @@ class Viewport3D(QOpenGLWidget):
         self._moved = False
         self._drag_target = None
         if e.button() == Qt.LeftButton and self.interactive and not (e.modifiers() & Qt.ShiftModifier):
+            handle = self._handle_at(self._last_pos)
+            if handle is not None:                           # an arrow or ring of the selected model
+                self._start_gizmo_drag(handle, self._last_pos)
+                return
+            face = self._face_at(self._last_pos)
+            if face is not None:                             # lay the model on this face
+                self._hover = None
+                self.lay_face_requested.emit(self.scene.selected, face[1])
+                return
             item, pt = self._pick(self._last_pos)
             if self.add_support_mode and isinstance(item, MeshObject):
                 self.support_requested.emit(item, pt)
@@ -631,6 +877,14 @@ class Viewport3D(QOpenGLWidget):
 
     def mouseMoveEvent(self, e: QMouseEvent) -> None:
         pos = e.position().toPoint()
+        if self._gizmo_drag is not None and e.buttons() & Qt.LeftButton:
+            self._last_pos = pos
+            self._drag_gizmo(pos, e.modifiers())
+            return
+        if not e.buttons():                                  # hovering (tracking is on while tools show)
+            self._last_pos = pos
+            self._update_hover(pos)
+            return
         dx, dy = pos.x() - self._last_pos.x(), pos.y() - self._last_pos.y()
         self._last_pos = pos
         self._moved = True
@@ -656,6 +910,14 @@ class Viewport3D(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:
+        if self._gizmo_drag is not None:
+            moved = self._gizmo_drag["moved"]
+            self._gizmo_drag = None
+            self._update_hover(e.position().toPoint())
+            if moved:
+                self.scene.changed()
+            self.update()
+            return
         if self._drag_target is not None and self._moved:
             self.scene.changed()
         self._drag_target = None

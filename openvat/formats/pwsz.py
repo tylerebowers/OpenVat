@@ -373,7 +373,8 @@ def resin_json(resin: ResinProfile) -> dict:
             "separate_support_exposure_delayed": 0.0,
             "material_scale_coeffs": [],
             "material_scale_coeffs_mode": 0,
-            "material_scale_xyz": {"x": resin.shrink_x, "y": resin.shrink_y, "z": resin.shrink_z},
+            # already in the layers; PhotonWorkshop has one set for every layer: the normal ones
+            "material_scale_xyz": {"x": n.scale_x, "y": n.scale_y, "z": n.scale_z},
         },
         "slicepara": {
             "anti_count": max(int(resin.anti_aliasing), 1),

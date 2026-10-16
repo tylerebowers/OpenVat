@@ -11,12 +11,14 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPointF, QRectF, QSize, QEvent
+from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap, QColor
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QDoubleSpinBox, QPushButton,
-                               QLabel, QCheckBox, QComboBox, QMessageBox, QApplication)
+                               QLabel, QCheckBox, QComboBox, QMessageBox, QApplication, QToolButton)
 
 from ..core.scene import Scene
 from ..core.hollow import HollowState, hole_from_world, hole_world, describe
+from ..core.orient import laid_on
 from ..core.placement import manual_support
 from ..core.supports import DENSITY_SPACING
 from .collapsible import SectionColumn
@@ -32,6 +34,9 @@ class ToolsPanel(SectionColumn):
     hole_mode_toggled = Signal(bool)    # clicking the model places / removes drain holes
     show_inside_toggled = Signal(bool)  # hollow models see-through, internal supports shown
     hollow_settings_changed = Signal()  # hollowing settings edited (persist them)
+    move_tool_toggled = Signal(bool)    # move arrows on the selected model
+    rotate_tool_toggled = Signal(bool)  # rotate rings on the selected model
+    lay_face_toggled = Signal(bool)     # highlight the faces the model can lie on
 
     def __init__(self, scene: Scene, parent=None):
         super().__init__(width=240, parent=parent)
@@ -44,6 +49,14 @@ class ToolsPanel(SectionColumn):
         self.add("edit", "Edit", self._build_edit())
         self.add("supports", "Supports", self._build_supports())
         self.add("hollow", "Hollowing", self._build_hollowing())
+        self.move_eye = _eye_button("Show move arrows on the selected model:\n"
+                                    "drag one to move the model along that axis (Ctrl: whole mm)")
+        self.rotate_eye = _eye_button("Show rotate rings on the selected model:\n"
+                                      "drag one to turn the model about that axis (Ctrl: 15° steps)")
+        self.sections["position"].add_header_widget(self.move_eye)
+        self.sections["rotation"].add_header_widget(self.rotate_eye)
+        self.move_eye.toggled.connect(self.move_tool_toggled)
+        self.rotate_eye.toggled.connect(self.rotate_tool_toggled)
         self.finish()
 
         scene.listeners.append(self.refresh)
@@ -87,8 +100,14 @@ class ToolsPanel(SectionColumn):
             plus.clicked.connect(lambda _=False, a=i: self._rotate(a, 45))
             g.addWidget(minus, i, 1); g.addWidget(sp, i, 2); g.addWidget(plus, i, 3)
             sp.valueChanged.connect(self._apply_rotation)
-        reset = QPushButton("Reset rotation"); reset.clicked.connect(self._reset_rotation)
-        g.addWidget(reset, 3, 0, 1, 4)
+        reset = QPushButton("Reset"); reset.clicked.connect(self._reset_rotation)
+        reset.setToolTip("Reset the rotation to 0°, 0°, 0°")
+        self.lay_btn = QPushButton("Lay on face")
+        self.lay_btn.setCheckable(True)
+        self.lay_btn.setToolTip("Highlight the model's large flat faces it can lie on (nothing goes below\n"
+                                "the build plate); click one to put the model down on it")
+        self.lay_btn.toggled.connect(self.lay_face_toggled)
+        g.addWidget(reset, 3, 0, 1, 2); g.addWidget(self.lay_btn, 3, 2, 1, 2)
         return w
 
     def _build_scale(self) -> QWidget:
@@ -206,7 +225,7 @@ class ToolsPanel(SectionColumn):
         obj = self.scene.selected
         self._updating = True
         enabled = obj is not None
-        for w in (*self.pos_spins, *self.rot_spins, *self.scale_spins, *self.mm_spins):
+        for w in (*self.pos_spins, *self.rot_spins, *self.scale_spins, *self.mm_spins, self.lay_btn):
             w.setEnabled(enabled)
         sec = self.sections
         if obj is not None:
@@ -374,6 +393,15 @@ class ToolsPanel(SectionColumn):
         obj.rotate(axis, deg)
         self.scene.changed()
 
+    def lay_on_face(self, obj, normal) -> None:
+        """A click on a highlighted face: turn the model so it lies on it."""
+        if obj is None:
+            return
+        self.scene.push_undo()
+        obj.rotation[:] = laid_on(obj.rotation, normal)
+        obj.drop_to_plate()
+        self.scene.changed()
+
     def _reset_rotation(self) -> None:
         obj = self.scene.selected
         if obj is None:
@@ -532,3 +560,58 @@ def _report_text(report: dict) -> str:
         text += (f" · {skipped} spot{'s' if skipped != 1 else ''} skipped (no path to the plate "
                  f"and no room for a nook support)")
     return text
+
+
+# --------------------------------------------------------------------------
+def _eye_pixmap(color: QColor, open_: bool, size: int = 18, ratio: float = 2.0) -> QPixmap:
+    """An eye (open) or a struck-through one (closed), drawn in ``color``."""
+    pm = QPixmap(int(size * ratio), int(size * ratio))
+    pm.setDevicePixelRatio(ratio)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = QColor(color)
+    if not open_:
+        c.setAlphaF(0.45)
+    p.setPen(QPen(c, 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    mid, w = size / 2, size * 0.42
+    lid = QPainterPath(QPointF(mid - w, mid))
+    lid.quadTo(QPointF(mid, mid - w * 1.15), QPointF(mid + w, mid))
+    lid.quadTo(QPointF(mid, mid + w * 1.15), QPointF(mid - w, mid))
+    p.drawPath(lid)
+    p.setBrush(c)
+    r = size * 0.13
+    p.drawEllipse(QRectF(mid - r, mid - r, 2 * r, 2 * r))
+    if not open_:
+        p.drawLine(QPointF(mid - w * 0.85, mid + w * 0.85), QPointF(mid + w * 0.85, mid - w * 0.85))
+    p.end()
+    return pm
+
+
+class _EyeButton(QToolButton):
+    """A small checkable eye for a card header (on: the tool shows).  The
+    icon follows the theme's text color."""
+
+    def __init__(self, tip: str):
+        super().__init__()
+        self.setCheckable(True)
+        self.setAutoRaise(True)
+        self.setToolTip(tip)
+        self.setIconSize(QSize(18, 18))
+        self._paint_icon()
+
+    def _paint_icon(self) -> None:
+        color = self.palette().buttonText().color()
+        icon = QIcon()
+        icon.addPixmap(_eye_pixmap(color, True), QIcon.Normal, QIcon.On)
+        icon.addPixmap(_eye_pixmap(color, False), QIcon.Normal, QIcon.Off)
+        self.setIcon(icon)
+
+    def changeEvent(self, e) -> None:
+        if e.type() in (QEvent.PaletteChange, QEvent.StyleChange):
+            self._paint_icon()
+        super().changeEvent(e)
+
+
+def _eye_button(tip: str) -> QToolButton:
+    return _EyeButton(tip)

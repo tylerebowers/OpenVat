@@ -21,8 +21,8 @@ from .hollow import Hole, HollowState
 _ids = count(1)
 
 
-@dataclass
-class MeshObject:
+@dataclass(eq=False)                    # compared by identity (like Support): value equality
+class MeshObject:                       # would compare the numpy arrays and raise
     name: str
     mesh: trimesh.Trimesh                     # source geometry, never mutated by transforms
     position: np.ndarray = field(default_factory=lambda: np.zeros(3))

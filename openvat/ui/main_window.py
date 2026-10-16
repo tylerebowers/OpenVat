@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._set_view_colors(saved_colors(self.store)[theme_name(dark_mode(self.store))])
         self._restore_panel_widths()
+        self._restore_view_tools()
         self._printer_changed(self.side.current_printer())
         self.scene.listeners.append(self._update_hint)
         self._update_hint()
@@ -137,6 +138,10 @@ class MainWindow(QMainWindow):
         self.tools.hole_mode_toggled.connect(self._set_hole_mode)
         self.tools.show_inside_toggled.connect(self._set_show_inside)
         self.tools.hollow_settings_changed.connect(self._save_hollow_settings)
+        self.tools.move_tool_toggled.connect(lambda on: self._set_view_tool("move", on))
+        self.tools.rotate_tool_toggled.connect(lambda on: self._set_view_tool("rotate", on))
+        self.tools.lay_face_toggled.connect(self._set_lay_face_mode)
+        self.viewport.lay_face_requested.connect(self.tools.lay_on_face)
         self.viewport.hole_requested.connect(self.tools.add_hole_at)
         self.viewport.support_requested.connect(self.tools.add_support_at)
         self.viewport.selection_changed.connect(self.scene.changed)
@@ -259,10 +264,36 @@ class MainWindow(QMainWindow):
         self.store.settings["hollowing"] = self.scene.hollow_settings.to_dict()
         self.store.save_settings()
 
+    def _set_view_tool(self, kind: str, on: bool) -> None:
+        """The move arrows / rotate rings (the eyes on the Position and
+        Rotation cards); remembered for the next start."""
+        self.viewport.set_tools(**{kind: on})
+        self.store.settings["view_tools"] = {"move": self.viewport.show_move, "rotate": self.viewport.show_rotate}
+        self.store.save_settings()
+        self._update_hint()
+
+    def _restore_view_tools(self) -> None:
+        saved = self.store.settings.get("view_tools")
+        if isinstance(saved, dict):
+            self.tools.move_eye.setChecked(bool(saved.get("move")))
+            self.tools.rotate_eye.setChecked(bool(saved.get("rotate")))
+
+    def _set_lay_face_mode(self, on: bool) -> None:
+        """Clicks on the selected model's highlighted faces lay it down (no
+        supports or holes are placed meanwhile)."""
+        if on:
+            for btn in (self.tools.add_support_btn, self.tools.hole_btn):
+                if btn.isChecked():
+                    btn.setChecked(False)
+        self.viewport.set_tools(lay_face=on)
+        self._update_hint()
+
     def _set_hole_mode(self, on: bool) -> None:
         """Clicking the model places drain holes (not supports)."""
         if on and self.tools.add_support_btn.isChecked():
             self.tools.add_support_btn.setChecked(False)
+        if on and self.tools.lay_btn.isChecked():
+            self.tools.lay_btn.setChecked(False)
         self.viewport.add_hole_mode = on
         self.viewport.setCursor(Qt.CrossCursor if on or self.viewport.add_support_mode else Qt.ArrowCursor)
 
@@ -273,6 +304,8 @@ class MainWindow(QMainWindow):
     def _set_support_mode(self, on: bool) -> None:
         if on and self.tools.hole_btn.isChecked():
             self.tools.hole_btn.setChecked(False)
+        if on and self.tools.lay_btn.isChecked():
+            self.tools.lay_btn.setChecked(False)
         self.viewport.add_support_mode = on
         self.viewport.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
 
@@ -299,6 +332,10 @@ class MainWindow(QMainWindow):
         else:
             text, warn, halo = QColor(235, 237, 240, 200), QColor(255, 107, 107), QColor(0, 0, 0, 170)
         parts = [(HINT, text, False)]
+        if self.viewport.lay_face_mode:
+            parts = [(self._lay_face_hint(), text, True), ("   ·   ", text, False)] + parts
+        elif (self.viewport.show_move or self.viewport.show_rotate) and self.scene.selected is not None:
+            parts += [("   ·   ", text, False), ("Ctrl-drag an arrow / ring: snap", text, False)]
         n_out = sum(not ok for ok in self.scene.fits(self.side.current_printer()).values())
         if n_out:
             s = "s" if n_out != 1 else ""
@@ -308,6 +345,14 @@ class MainWindow(QMainWindow):
                       ("⚠ OpenGL runs in software - the 3D view will be slow (Help → About)", warn, True)]
         self.hint.set_parts(parts, halo)
         self.host.relayout()
+
+    def _lay_face_hint(self) -> str:
+        obj = self.scene.selected
+        if obj is None:
+            return "Lay on face: select a model"
+        if not self.viewport.lay_candidates(obj):
+            return "Lay on face: no other flat face it can lie on"
+        return "Lay on face: click a highlighted face to put the model down on it"
 
     # ------------------------------------------------------------ preferences
     def open_preferences(self) -> None:

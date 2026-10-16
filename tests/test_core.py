@@ -38,6 +38,13 @@ def cube_scene(size=20.0):
     return scene, obj
 
 
+def unscaled(resin: ResinProfile) -> ResinProfile:
+    """The resin without scale compensation (bottom and normal layers)."""
+    for layer in (resin.bottom, resin.normal):
+        layer.scale_x = layer.scale_y = layer.scale_z = 1.0
+    return resin
+
+
 def test_contours_square_with_hole():
     outer = [(-5, -5), (5, -5), (5, 5), (-5, 5)]
     inner = [(-2, -2), (2, -2), (2, 2), (-2, 2)]
@@ -63,27 +70,91 @@ def test_slice_cube_areas(store):
     resin = store.resins[0]
     result = slice_scene(scene, store.printers[0], resin)
     assert len(result.layers) == 400
-    expected = (20 * resin.shrink_x) * (20 * resin.shrink_y)
+    expected = (20 * resin.normal.scale_x) * (20 * resin.normal.scale_y)
     assert result.layers[200].area == pytest.approx(expected, rel=1e-4)
     assert result.layers[0].exposure == resin.bottom.exposure
     assert result.layers[-1].exposure == resin.normal.exposure
 
 
-def test_elephant_foot_shrinks_bottom_layers(store):
-    scene, _ = cube_scene()
-    resin = store.resins[0]
-    resin.elephant_foot_mm = 0.5
-    resin.shrink_x = resin.shrink_y = 1.0
+def test_bottom_transition_and_normal_layers_scale(store):
+    """Each layer type has its own X/Y/Z scale; transition layers ramp from
+    the bottom values to the normal ones (like the exposure)."""
+    scene, obj = cube_scene()
+    obj.position[:2] = [30.0, -10.0]                           # scaled about its own center
+    resin = unscaled(store.resins[0])
+    resin.bottom_layers, resin.transition_layers = 3, 1
+    resin.bottom.scale_x = resin.bottom.scale_y = 0.95
+    resin.normal.scale_x = 1.01
     result = slice_scene(scene, store.printers[0], resin)
-    assert result.layers[0].area == pytest.approx(19 * 19)
-    assert result.layers[-1].area == pytest.approx(20 * 20)
+    sizes = [(round(b[2] - b[0], 6), round(b[3] - b[1], 6)) for b in (l.geometry.bounds for l in result.layers)]
+    assert sizes[:3] == [(19.0, 19.0)] * 3                     # bottom
+    assert sizes[3] == (pytest.approx(19.6), pytest.approx(19.5))   # transition: halfway
+    assert sizes[4] == sizes[-1] == (pytest.approx(20.2), 20.0)     # normal
+    assert all(np.allclose(l.geometry.centroid.coords[0], [30.0, -10.0]) for l in result.layers)
+    assert len(result.layers) == 400                           # Z unscaled
+
+
+def test_layer_z_scale(store):
+    """Z scale: a layer stands for thickness / Z of the model."""
+    scene, _ = cube_scene(10.0)
+    resin = unscaled(store.resins[0])
+    resin.bottom_layers, resin.transition_layers = 4, 0
+    resin.bottom.thickness = resin.normal.thickness = 0.05
+    resin.bottom.scale_z = 2.0                     # 4 bottom layers cover 0.1 mm of the model
+    result = slice_scene(scene, store.printers[0], resin)
+    assert len(result.layers) == 202 and result.height == pytest.approx(10.1)
+    # the same Z everywhere is the old global shrinkage compensation
+    resin.bottom.scale_z = resin.normal.scale_z = 1.1
+    assert slice_scene(scene, store.printers[0], resin).height == pytest.approx(11.0)
+
+
+def test_scale_follows_each_model_and_its_supports():
+    """Two models apart on the plate: each one's layers (supports included)
+    scale about that model's own center, so supports stay under it."""
+    import shapely.affinity
+    scene = Scene()
+    slabs = []
+    for x in (-40.0, 35.0):
+        slab = MeshObject("slab", trimesh.creation.box(extents=[20, 14, 3]))
+        slab.drop_to_plate()
+        slab.position[:] += [x, 5.0, 8.0]
+        scene.add(slab)
+        slabs.append(slab)
+    scene.auto_supports()
+    plain = unscaled(ResinProfile())
+    big = unscaled(ResinProfile())
+    big.bottom.scale_x = big.bottom.scale_y = big.normal.scale_x = big.normal.scale_y = 1.1
+    a = slice_scene(scene, PrinterProfile(), plain)
+    b = slice_scene(scene, PrinterProfile(), big)
+    for i in (0, 60, len(a.layers) - 1):                       # raft, pillars, the slabs
+        for slab in slabs:
+            c = slab.world_bounds().mean(axis=0)[:2]
+            box = shapely.box(c[0] - 30, c[1] - 30, c[0] + 30, c[1] + 30)
+            want = shapely.affinity.scale(a.layers[i].geometry.intersection(box), 1.1, 1.1, origin=tuple(c))
+            got = b.layers[i].geometry.intersection(box)
+            assert got.symmetric_difference(want).area < 1e-6 * max(want.area, 1.0)
+
+
+def test_old_resin_scale_and_elephant_foot_are_converted():
+    from dataclasses import asdict
+    from openvat.core.profiles import resin_from_dict
+    old = {"name": "old", "shrink_x": 1.02, "shrink_y": 1.03, "shrink_z": 1.04, "elephant_foot_mm": 0.3,
+           "normal": {"thickness": 0.03, "exposure": 2.5}, "bottom_layers": 5}
+    r = resin_from_dict(old)
+    assert (r.normal.thickness, r.normal.exposure, r.bottom_layers) == (0.03, 2.5, 5)
+    assert (r.normal.scale_x, r.normal.scale_y, r.normal.scale_z) == (1.02, 1.03, 1.04)
+    assert (r.bottom.scale_x, r.bottom.scale_y, r.bottom.scale_z) == (1.02, 1.03, 1.04)
+    assert r.bottom.exposure == ResinProfile().bottom.exposure      # missing: the resin's own default
+    assert not {"shrink_x", "elephant_foot_mm"} & set(asdict(r))
+    new = dict(old, normal={"scale_x": 0.99})                         # new-style values win
+    assert resin_from_dict(new).normal.scale_x == 0.99
 
 
 def test_layer_image_roundtrip():
     scene, _ = cube_scene()
     hole = trimesh.creation.cylinder(radius=3, height=40)
     scene.objects[0].mesh = scene.objects[0].mesh.difference(hole)
-    resin = ResinProfile(shrink_x=1.0, shrink_y=1.0)
+    resin = ResinProfile()
     result = slice_scene(scene, PrinterProfile(), resin)
     layer = result.layers[100]
     blob = encode_layer_image(layer.geometry)
@@ -160,6 +231,29 @@ def test_undo_redo():
     assert scene.undo_stack.undo() and len(scene.objects) == 1
 
 
+def test_delete_any_support_or_object():
+    """Supports and objects are found by identity: removing one that is not
+    first in the list used to compare numpy arrays and raise."""
+    scene = Scene()
+    slab = MeshObject("slab", trimesh.creation.box(extents=[30, 20, 3]))
+    slab.drop_to_plate()
+    slab.position[2] += 10
+    scene.add(slab)
+    assert scene.auto_supports(slab) > 3
+    n = len(scene.supports)
+    third = scene.supports[2]
+    scene.selected_support = third
+    scene.remove_support(third)
+    assert len(scene.supports) == n - 1 and all(s is not third for s in scene.supports)
+    assert scene.selected_support is None
+    assert scene.undo_stack.undo() and len(scene.supports) == n
+    # objects too, even next to a twin with the same name and mesh
+    twin = MeshObject("slab", slab.mesh, position=slab.position.copy())
+    scene.add(twin)
+    scene.remove(twin)
+    assert scene.objects == [slab]
+
+
 def test_auto_supports_braces_and_raft():
     from openvat.core.supports import generate_braces, raft_mesh
     scene = Scene()
@@ -208,8 +302,7 @@ def test_voxel_rebuild_matches_slices(store):
     from openvat.core.voxels import build_volume
     scene, _ = cube_scene(10.0)
     scene.objects[0].position[:2] = [0.123, -3.77]       # off the pixel grid on purpose
-    resin = store.resins[0]
-    resin.shrink_x = resin.shrink_y = 1.0
+    resin = unscaled(store.resins[0])
     result = slice_scene(scene, store.printers[0], resin)
     vol = build_volume(result, 1)
     px_area = vol.vx * vol.vy
@@ -237,8 +330,7 @@ def test_voxel_faces_cut_and_culling(store):
     mush = MeshObject("mushroom", trimesh.util.concatenate([stem, cap]))
     mush.position[:] = [4.0, 0.0, 1.5]
     scene.add(ball); scene.add(mush)
-    resin = store.resins[0]
-    resin.shrink_x = resin.shrink_y = 1.0
+    resin = unscaled(store.resins[0])
     vol = build_volume(slice_scene(scene, store.printers[0], resin), 1)
     voxel = vol.vx * vol.vy
     dz = np.diff(vol.z_edges)
@@ -479,10 +571,12 @@ def test_photonworkshop_resin_import():
              "slicepara": {"zthick": 0.05, "exposure_time": 1.8, "off_time": 0.5, "bott_layers": 4,
                            "bott_time": 25.0, "zup_height": 4.0, "zup_speed": 3.0, "zdown_speed": 3.0},
              "slice_extpara": {"transition_layercount": 15, "transition_type": 0,
-                               "material_scale_xyz": {"x": 1.0, "y": 1.0, "z": 1.0}}}
+                               "material_scale_xyz": {"x": 1.01111, "y": 1.01111, "z": 1.055}}}
     r = resin_from_photonworkshop(entry)
     assert r.name == "Anycubic Standard Resin V2 (ACF, Normal 0.05 mm)"
     assert (r.normal.exposure, r.bottom.exposure, r.bottom_layers, r.transition_layers) == (1.8, 25.0, 4, 0)
+    for layer in (r.normal, r.bottom):                      # one set for every layer in PhotonWorkshop
+        assert (layer.scale_x, layer.scale_y, layer.scale_z) == (1.01111, 1.01111, 1.055)
 
 
 def test_printer_presets_from_photonworkshop():
@@ -522,7 +616,7 @@ def test_layer_fills_like_the_printer():
         o.drop_to_plate()
         scene.add(o)
     printer = PrinterProfile()
-    result = slice_scene(scene, printer, ResinProfile(shrink_x=1.0, shrink_y=1.0, shrink_z=1.0))
+    result = slice_scene(scene, printer, ResinProfile())
     for layer in (result.layers[0], result.layers[50]):
         img = decode_layer_image(encode_layer_image(layer.geometry))
         filled = rasterize_layer_image(img, printer.pixel_x_mm, printer.pixel_y_mm,
@@ -534,7 +628,9 @@ def test_layer_fills_like_the_printer():
 def test_z_shrink_compensation():
     scene, _ = cube_scene(10.0)
     from openvat.core.profiles import PrinterProfile
-    result = slice_scene(scene, PrinterProfile(), ResinProfile(shrink_x=1.0, shrink_y=1.0, shrink_z=1.1))
+    resin = ResinProfile()
+    resin.bottom.scale_z = resin.normal.scale_z = 1.1
+    result = slice_scene(scene, PrinterProfile(), resin)
     assert result.height == pytest.approx(11.0, abs=0.05)     # 10 mm cube printed 10 % taller
 
 
@@ -542,7 +638,7 @@ def test_z_stretch_prints_the_lowest_layers_taller():
     from dataclasses import asdict, replace
     from openvat.core.profiles import resin_from_dict
     from openvat.core.slicer import stretched_z, unstretched_z, slice_mesh_at
-    plain = ResinProfile(shrink_x=1.0, shrink_y=1.0, shrink_z=1.0)
+    plain = ResinProfile()
     plain.bottom.thickness = plain.normal.thickness = 0.05
     stretch = replace(plain, stretch_height=2.0, stretch_factor=1.1)
     # older profiles have no stretch settings: off
@@ -902,7 +998,7 @@ def test_rotated_cube_prints_without_islands():
     obj = _rotated_xyz_cube()
     scene.add(obj)
     scene.auto_supports(layer_height=0.1)
-    resin = ResinProfile(shrink_x=1.0, shrink_y=1.0, shrink_z=1.0)
+    resin = ResinProfile()
     resin.normal.thickness = resin.bottom.thickness = 0.1
     result = slice_scene(scene, PrinterProfile(), resin)
     assert result.islands == []
@@ -978,9 +1074,7 @@ def test_hollowing(store):
     cavity; internal supports stay inside the model and print without islands."""
     import math
     from openvat.core.hollow import HollowState, LatticeParams, hole_from_world
-    resin = store.resins[0]
-    resin.shrink_x = resin.shrink_y = resin.shrink_z = 1.0
-    resin.elephant_foot_mm = 0.0
+    resin = unscaled(store.resins[0])
     scene, obj = cube_scene(20.0)
     solid = slice_scene(scene, store.printers[0], resin)
     obj.holes = (hole_from_world(obj.matrix(), [0, 0, 20.0], [0, 0, 1], 3.0),)
@@ -1323,3 +1417,130 @@ def test_write_ultra_anti_aliased(tmp_path):
     img = f.layer_image(100)
     assert set(np.unique(img).tolist()) == {0, 3, 7, 11, 15}
     assert f.raw.build() == out.read_bytes()
+
+
+def _bracket():
+    """An L-shaped bracket: its two inside faces are concave."""
+    return trimesh.boolean.union([trimesh.creation.box(extents=[30, 12, 6]).apply_translation([0, 0, 3]),
+                                  trimesh.creation.box(extents=[6, 12, 24]).apply_translation([-12, 0, 12])])
+
+
+def test_rotation_helpers():
+    from openvat.core.orient import rotation_matrix, angles_of, rotated_about, laid_on, turn_onto
+    obj = MeshObject("box", trimesh.creation.box(extents=[1, 2, 3]))
+    obj.rotation[:] = [30, -50, 170]
+    assert np.allclose(obj.matrix()[:3, :3], rotation_matrix(obj.rotation))   # same convention as the model
+    assert angles_of(rotation_matrix([30, -50, 170])) == pytest.approx([30, -50, 170])
+    assert angles_of(rotation_matrix([0, 90, 0])) == pytest.approx([0, 90, 0])
+    # a turn about a world axis composes on the left
+    turned = rotated_about([30, -50, 170], [0, 0, 1], 25)
+    want = trimesh.transformations.rotation_matrix(np.radians(25), [0, 0, 1])[:3, :3] @ rotation_matrix([30, -50, 170])
+    assert np.allclose(rotation_matrix(turned), want)
+    # laying on a face turns that face's normal straight down
+    for n in ([1, 0, 0], [0, 0, 1], [0, 0, -1], [0.3, -0.5, 0.8]):
+        n = np.array(n, float) / np.linalg.norm(n)
+        assert turn_onto(n) @ n == pytest.approx([0, 0, -1])
+        start = [10, 20, 30]
+        local = rotation_matrix(start).T @ n                       # the face in the model's own frame
+        assert rotation_matrix(laid_on(start, n)) @ local == pytest.approx([0, 0, -1], abs=1e-6)
+
+
+def test_flat_faces_leave_out_concave_and_curved_faces():
+    from openvat.core.orient import flat_faces, laid_on
+    bracket = _bracket()
+    faces = flat_faces(bracket)
+    normals = {tuple(np.round(f.normal, 6) + 0.0) for f in faces}
+    assert normals == {(0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0)}
+    top = next(f for f in faces if f.normal[2] > 0.99)
+    assert top.area == pytest.approx(6 * 12)                      # the tall leg's top, not the short leg's
+    side = next(f for f in faces if f.normal[0] > 0.99)
+    assert side.area == pytest.approx(6 * 12)                     # the long leg's end, not the inside wall
+    for f in faces:                                               # laid on any of them: nothing below it
+        obj = MeshObject("bracket", bracket)
+        obj.rotation[:] = laid_on(obj.rotation, f.normal)
+        obj.drop_to_plate()
+        world = obj.transformed()
+        assert world.vertices[:, 2].min() == pytest.approx(0.0, abs=1e-6)
+        assert world.area_faces[world.face_normals[:, 2] < -0.9999].sum() >= f.area - 1e-6
+    # a cylinder offers its two ends, not the strips of its side; a ball offers nothing
+    ends = flat_faces(trimesh.creation.cylinder(radius=5, height=10, sections=64))
+    assert sorted(round(f.normal[2]) for f in ends) == [-1, 1]
+    assert flat_faces(trimesh.creation.icosphere(3, 10)) == []
+
+
+def test_gizmo_picking_and_drag_math():
+    from openvat.ui import gizmos
+    from openvat.ui.camera import OrbitCamera
+    cam = OrbitCamera()
+    cam.aspect = 800 / 600
+    cam.target = np.array([0.0, 0.0, 10.0])
+    vp = cam.projection_matrix() @ cam.view_matrix()
+    c = np.array([0.0, 0.0, 10.0])
+    size = gizmos.world_size(cam, c, gizmos.ARROW_PX, 600)
+    for axis in range(3):                                         # the middle of each arrow grabs it
+        mid, _ = gizmos.project(vp, [c + np.eye(3)[axis] * size * 0.6], 800, 600)
+        assert gizmos.pick(vp, cam, c, 800, 600, mid[0], True, False) == ("move", axis)
+    r = gizmos.world_size(cam, c, gizmos.RING_PX, 600)
+    on_z, _ = gizmos.project(vp, [c + r * np.array([np.cos(0.6), np.sin(0.6), 0])], 800, 600)
+    assert gizmos.pick(vp, cam, c, 800, 600, on_z[0], False, True) == ("rotate", 2)
+    assert gizmos.pick(vp, cam, c, 800, 600, (5, 5), True, True) is None
+    # dragging: where the mouse ray passes the axis, and the angle around a ring
+    assert gizmos.axis_parameter([0, -10, 3], [0, 1, 0], [0, 0, 0], [0, 0, 1]) == pytest.approx(3)
+    assert gizmos.axis_parameter([0, 0, 50], [0, 0, -1], [0, 0, 0], [0, 0, 1]) is None
+    assert gizmos.plane_angle([1, 1, 5], [0, 0, -1], [0, 0, 0], 2) == pytest.approx(np.pi / 4)
+    assert gizmos.unwrap(np.radians(350)) == pytest.approx(np.radians(-10))
+
+
+def test_view_tools_in_the_3d_view():
+    """Drag a move arrow and a rotate ring, and lay the model on a face,
+    with real mouse events on the 3D view."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    code = '''
+import numpy as np, trimesh
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from openvat.core.scene import Scene
+from openvat.core.mesh import MeshObject
+from openvat.ui.viewport3d import Viewport3D
+from openvat.ui import gizmos
+from tests.test_core import _bracket
+scene = Scene()
+obj = MeshObject("bracket", _bracket()); obj.drop_to_plate(); scene.add(obj)
+v = Viewport3D(scene); v.resize(800, 600); v.show()
+v.camera.set_view("iso"); v.camera.fit(scene.bounds(), (100, 100)); v.camera.distance *= 1.6
+v.set_tools(move=True, rotate=True)
+for _ in range(10): app.processEvents(); QTest.qWait(10)
+def at(p):
+    xy, _ = gizmos.project(v._view_projection(), [p], v.width(), v.height())
+    return QPoint(int(round(xy[0][0])), int(round(xy[0][1])))
+def drag(a, b):
+    QTest.mousePress(v, Qt.LeftButton, Qt.NoModifier, a)
+    for k in range(1, 11):
+        QTest.mouseMove(v, QPoint(a.x() + (b.x() - a.x()) * k // 10, a.y() + (b.y() - a.y()) * k // 10))
+    QTest.mouseRelease(v, Qt.LeftButton, Qt.NoModifier, b)
+c = obj.position.copy()
+L = gizmos.world_size(v.camera, c, gizmos.ARROW_PX, v.height())
+drag(at(c + [L * 0.6, 0, 0]), at(c + [L * 0.6 + 12, 0, 0]))
+moved = obj.position - c
+R = gizmos.world_size(v.camera, obj.position, gizmos.RING_PX, v.height())
+ring = gizmos.ring_points(obj.position, 2, R)
+drag(at(ring[6]), at(ring[15]))                       # 30 -> 75 degrees around the Z ring
+turned = obj.rotation.copy()
+v.set_tools(move=False, rotate=False, lay_face=True)
+laid = []
+v.lay_face_requested.connect(lambda o, n: laid.append(n))
+i, n = next((i, n) for i, n in v.lay_candidates(obj) if n[2] > 0.99)   # the top of the tall leg
+f = v._flat_faces_of(obj)[i]
+QTest.mouseClick(v, Qt.LeftButton, Qt.NoModifier, at(obj.transformed().triangles[f.faces].mean(axis=(0, 1))))
+print(round(moved[0]), round(abs(moved[1]) + abs(moved[2]), 6), round(turned[2]), len(laid), np.round(laid[0], 6).tolist() if laid else None)
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    x, off_axis, turned, n_laid, normal = r.stdout.strip().split(" ", 4)
+    assert abs(int(x) - 12) <= 1 and float(off_axis) == 0.0      # along X only
+    assert abs(int(turned) - 45) <= 2                             # about Z, as far as the mouse went
+    assert n_laid == "1" and normal == "[0.0, 0.0, 1.0]"

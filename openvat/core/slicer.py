@@ -6,13 +6,15 @@ Anycubic .pwsz format wants, and it also keeps memory low; the layer viewer
 rasterizes on demand.
 
 Pipeline for one layer:
-    1. intersect every world-space mesh with the plane z = layer center
-       (with a resin Z stretch: the model height that layer stands for,
-       see ``unstretched_z``)
+    1. intersect every world-space mesh with the plane at the model height
+       the layer stands for: its center, unless the resin scales layers in
+       Z or stretches the lowest ones (see ``layer_schedule`` and
+       ``unstretched_z``)
     2. chain the resulting segments into closed polygons (with holes)
-    3. union the polygons of all objects/supports
-    4. bottom layers: elephant-foot compensation - every edge is moved
-       inward by ``elephant_foot_mm`` (negative polygon offset; holes grow)
+    3. scale each model's polygons by the layer's X/Y factors about the
+       model's own center (bottom, transition and normal layers each have
+       their own); supports go with the model they stand under
+    4. union the polygons of all objects/supports
 
 Support meshes are sets of overlapping closed parts; each part is outlined
 on its own and the outlines are united (``shell_labels``), so crossing parts
@@ -31,6 +33,7 @@ from typing import Callable
 
 import numpy as np
 import shapely
+import shapely.affinity
 import trimesh
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
@@ -154,35 +157,48 @@ def find_islands(layers: list[Layer]) -> list[Island]:
 # --------------------------------------------------------------------------
 # layer schedule
 
+LAYER_ONLY = ("scale", "cut_z")            # layer_schedule keys that are not Layer fields
+
+
 def layer_schedule(height: float, resin: ResinProfile) -> list[dict]:
     """Return the per-layer parameters (without geometry) for a model of the
-    given height.  Bottom layers, optional transition layers, normal layers."""
+    given height.  Bottom layers, optional transition layers, normal layers.
+
+    Besides the Layer fields every entry has ``scale``, the layer's (X, Y,
+    Z) factors, and ``cut_z``, the model height it is cut at.  A layer
+    stands for thickness / Z of the model, so with Z > 1 more layers cover
+    the same height and that part prints taller.  Transition layers ramp
+    exposure and scale linearly from the bottom values to the normal ones."""
     out: list[dict] = []
-    z = 0.0
+    z = 0.0                                      # print height
+    u = 0.0                                      # model height covered so far
     n_bottom = resin.bottom_layers
     n_trans = max(resin.transition_layers, 0)
     b, n = resin.bottom, resin.normal
+    b_scale = (b.scale_x, b.scale_y, b.scale_z)
+    n_scale = (n.scale_x, n.scale_y, n.scale_z)
     i = 0
-    while z < height - 1e-6:
-        if i < n_bottom:
-            p = dict(thickness=b.thickness, exposure=b.exposure, off_time=b.off_time,
-                     wait_before_lift=b.wait_before_lift, wait_after_lift=b.wait_after_lift,
-                     lift_distance=b.lift_distance, lift_speed=b.lift_speed,
-                     retract_speed=b.retract_speed)
-        else:
-            p = dict(thickness=n.thickness, exposure=n.exposure, off_time=n.off_time,
-                     wait_before_lift=n.wait_before_lift, wait_after_lift=n.wait_after_lift,
-                     lift_distance=n.lift_distance, lift_speed=n.lift_speed,
-                     retract_speed=n.retract_speed)
-            k = i - n_bottom
-            if k < n_trans:
-                # linear ramp from bottom exposure down to normal exposure
-                t = (k + 1) / (n_trans + 1)
-                p["exposure"] = b.exposure + (n.exposure - b.exposure) * t
+    while u < height - 1e-6:
+        src = b if i < n_bottom else n
+        p = dict(thickness=src.thickness, exposure=src.exposure, off_time=src.off_time,
+                 wait_before_lift=src.wait_before_lift, wait_after_lift=src.wait_after_lift,
+                 lift_distance=src.lift_distance, lift_speed=src.lift_speed,
+                 retract_speed=src.retract_speed)
+        scale = b_scale if i < n_bottom else n_scale
+        k = i - n_bottom
+        if 0 <= k < n_trans:
+            # linear ramp from the bottom values to the normal ones
+            t = (k + 1) / (n_trans + 1)
+            p["exposure"] = b.exposure + (n.exposure - b.exposure) * t
+            scale = tuple(bv + (nv - bv) * t for bv, nv in zip(b_scale, n_scale))
+        step = p["thickness"] / max(scale[2], 1e-3)
         p["index"] = i
         p["z_bottom"] = z
+        p["scale"] = tuple(float(v) for v in scale)
+        p["cut_z"] = u + step / 2
         out.append(p)
         z += p["thickness"]
+        u += step
         i += 1
     return out
 
@@ -192,30 +208,29 @@ def layer_schedule(height: float, resin: ResinProfile) -> list[dict]:
 
 @dataclass
 class _HollowJob:
-    """A hollowed model: its world mesh and what hollowing adds (world space,
-    shrinkage compensated like the mesh)."""
+    """A hollowed model: its world mesh and what hollowing adds (world space)."""
     mesh: trimesh.Trimesh
+    center: np.ndarray                            # XY: its layers scale about this
     state: HollowState
     holes: tuple                                  # (starts, ends, radii)
     poles: tuple | None                           # (starts, ends) of the internal support poles
 
 
-def _world_meshes(scene: Scene, resin: ResinProfile) -> tuple[list, list[_HollowJob]]:
-    """All printable geometry in world space with shrinkage compensation:
-    (mesh, shell labels) pairs, and the hollowed models apart.  Models are
-    sliced as they are (even-odd, so models that come with cavities keep
-    them); support meshes are made of overlapping closed shells and carry a
-    shell label per face."""
-    meshes, jobs = [], []
+def _world_meshes(scene: Scene) -> tuple[list, tuple | None, list[_HollowJob]]:
+    """All printable geometry in world space: the models as (mesh, XY
+    center) pairs, the supports as one (mesh, shell labels) pair (None
+    without supports), and the hollowed models apart.  Models are sliced as
+    they are (even-odd, so models that come with cavities keep them);
+    support meshes are made of overlapping closed shells and carry a shell
+    label per face."""
+    models, jobs = [], []
     for obj in scene.objects:
         if not obj.visible:
             continue
         m = obj.transformed()
-        shrink = _shrink_matrix(m, resin)
-        if shrink is not None:
-            m.apply_transform(shrink)
+        center = m.bounds.mean(axis=0)[:2]
         if obj.hollow is None:
-            meshes.append((m, None))
+            models.append((m, center))
             continue
         state = obj.hollow
         starts, ends, radii = hole_segments(obj.matrix(), obj.holes, hole_depth(state.thickness))
@@ -223,14 +238,13 @@ def _world_meshes(scene: Scene, resin: ResinProfile) -> tuple[list, list[_Hollow
         if state.lattice is not None:
             lo, hi = m.bounds
             poles = lattice_segments(lo, hi, state.lattice)
-        if shrink is not None and len(starts):
-            starts, ends = (trimesh.transform_points(p, shrink) for p in (starts, ends))
-        jobs.append(_HollowJob(m, state, (starts, ends, radii), poles))
-    supports = scene.support_meshes()
-    if supports:                                  # one mesh, so each layer is cut once
-        m = trimesh.util.concatenate(supports)
-        meshes.append((_apply_shrink(m, resin), shell_labels(m)))
-    return meshes, jobs
+        jobs.append(_HollowJob(m, center, state, (starts, ends, radii), poles))
+    support = None
+    meshes = scene.support_meshes()
+    if meshes:                                    # one mesh, so each layer is cut once
+        m = trimesh.util.concatenate(meshes)
+        support = (m, shell_labels(m))
+    return models, support, jobs
 
 
 def shell_labels(mesh: trimesh.Trimesh) -> np.ndarray:
@@ -249,23 +263,32 @@ def shell_labels(mesh: trimesh.Trimesh) -> np.ndarray:
     return label[faces[:, 0]]
 
 
-def _shrink_matrix(m: trimesh.Trimesh, resin: ResinProfile) -> np.ndarray | None:
-    """Shrinkage compensation as PhotonWorkshop does it: X/Y scaled about the
-    mesh's own center, Z scaled up from the build plate (z = 0).  None when
-    the resin does not shrink."""
-    if resin.shrink_x == 1.0 and resin.shrink_y == 1.0 and resin.shrink_z == 1.0:
-        return None
-    c = m.bounds.mean(axis=0)
-    s = np.diag([resin.shrink_x, resin.shrink_y, resin.shrink_z, 1.0])
-    return (trimesh.transformations.translation_matrix([c[0], c[1], 0])
-            @ s @ trimesh.transformations.translation_matrix([-c[0], -c[1], 0]))
+def _scaled(geom: MultiPolygon, sx: float, sy: float, center) -> MultiPolygon:
+    """A layer outline scaled in X/Y about ``center`` (scale compensation,
+    as PhotonWorkshop does it: about each model's own center)."""
+    if (sx == 1.0 and sy == 1.0) or geom.is_empty:
+        return geom
+    return _as_multi(shapely.affinity.scale(geom, sx, sy, origin=(float(center[0]), float(center[1]))))
 
 
-def _apply_shrink(m: trimesh.Trimesh, resin: ResinProfile) -> trimesh.Trimesh:
-    shrink = _shrink_matrix(m, resin)
-    if shrink is not None:
-        m.apply_transform(shrink)
-    return m
+def _scaled_supports(geom: MultiPolygon, sx: float, sy: float,
+                     boxes: np.ndarray, centers: np.ndarray) -> list[MultiPolygon]:
+    """The support outlines of one layer, each scaled about the center of
+    the model it stands under (the nearest model footprint, ``boxes`` being
+    their XY bounds [x0, y0, x1, y1]), so supports stay under their contact
+    points."""
+    if (sx == 1.0 and sy == 1.0) or geom.is_empty or not len(centers):
+        return [geom]
+    polys = np.array([g for g in shapely.get_parts(geom) if isinstance(g, Polygon) and not g.is_empty],
+                     dtype=object)
+    if not len(polys):
+        return [geom]
+    pts = shapely.get_coordinates(shapely.point_on_surface(polys))
+    dx = np.maximum(np.maximum(boxes[None, :, 0] - pts[:, None, 0], pts[:, None, 0] - boxes[None, :, 2]), 0)
+    dy = np.maximum(np.maximum(boxes[None, :, 1] - pts[:, None, 1], pts[:, None, 1] - boxes[None, :, 3]), 0)
+    to_center = np.linalg.norm(pts[:, None, :] - centers[None, :, :], axis=2)
+    owner = np.argmin(np.hypot(dx, dy) * 1e6 + to_center, axis=1)   # inside a footprint first
+    return [_scaled(MultiPolygon(list(polys[owner == k])), sx, sy, centers[k]) for k in np.unique(owner)]
 
 
 def _z_stretch(resin: ResinProfile) -> tuple[float, float] | None:
@@ -277,8 +300,9 @@ def _z_stretch(resin: ResinProfile) -> tuple[float, float] | None:
 
 
 def stretched_z(z, resin: ResinProfile) -> np.ndarray:
-    """Model height -> print height: up to ``stretch_height`` everything is
-    ``stretch_factor`` times taller, above that shifted up by the difference."""
+    """Model height -> print height (before the layers' own Z scale): up to
+    ``stretch_height`` everything is ``stretch_factor`` times taller, above
+    that shifted up by the difference."""
     z = np.asarray(z, dtype=float)
     s = _z_stretch(resin)
     if s is None:
@@ -289,7 +313,8 @@ def stretched_z(z, resin: ResinProfile) -> np.ndarray:
 
 def unstretched_z(z, resin: ResinProfile) -> np.ndarray:
     """Print height -> model height (the inverse of ``stretched_z``): where a
-    layer printed at height z cuts the model."""
+    layer printed at height z cuts the model (again before the layers' own
+    Z scale, which ``layer_schedule`` works out)."""
     z = np.asarray(z, dtype=float)
     s = _z_stretch(resin)
     if s is None:
@@ -388,26 +413,35 @@ def _as_multi(geom) -> MultiPolygon:
 
 def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
                 progress: ProgressFn | None = None) -> SliceResult:
-    meshes, jobs = _world_meshes(scene, resin)
-    if not meshes and not jobs:
+    models, support, jobs = _world_meshes(scene)
+    if not models and not jobs:
         raise ValueError("Nothing to slice - add a model first.")
 
     bounds = scene.bounds()
-    height = max(m.bounds[1][2] for m in [m for m, _shells in meshes] + [j.mesh for j in jobs])
+    every = [m for m, _c in models] + [j.mesh for j in jobs] + ([support[0]] if support else [])
+    height = max(m.bounds[1][2] for m in every)
     schedule = layer_schedule(float(stretched_z(height, resin)), resin)
     n = len(schedule)
     total = n * (1 + len(jobs))
-    # layer centers on the printer, and where those layers cut the model
-    # (the same unless the resin stretches the lowest layers in Z)
-    zc = unstretched_z([p["z_bottom"] + p["thickness"] / 2 for p in schedule], resin)
+    # where each layer cuts the model: its center, unless the resin scales
+    # layers in Z or stretches the lowest ones
+    zc = unstretched_z([p["cut_z"] for p in schedule], resin)
+    # model footprints and centers: X/Y scale compensation works about these
+    owners = [(m.bounds, c) for m, c in models] + [(j.mesh.bounds, j.center) for j in jobs]
+    boxes = np.array([[lo[0], lo[1], hi[0], hi[1]] for (lo, hi), _c in owners])
+    centers = np.array([c for _b, c in owners])
 
     # 1. cut every layer: the plain geometry united, hollowed models kept apart
     plain: list[MultiPolygon] = []
     solids: list[list] = [[] for _ in jobs]
-    slicers = [(MeshSlicer(m, shells), m.bounds) for m, shells in meshes]
+    slicers = [(MeshSlicer(m), m.bounds, c) for m, c in models]
     job_slicers = [MeshSlicer(job.mesh) for job in jobs]
+    support_slicer = (MeshSlicer(*support), support[0].bounds) if support else None
     for p, z in zip(schedule, zc):
-        parts = [sl.at(z) for sl, b in slicers if b[0][2] <= z <= b[1][2]]
+        sx, sy, _sz = p["scale"]
+        parts = [_scaled(sl.at(z), sx, sy, c) for sl, b, c in slicers if b[0][2] <= z <= b[1][2]]
+        if support_slicer is not None and support_slicer[1][0][2] <= z <= support_slicer[1][1][2]:
+            parts += _scaled_supports(support_slicer[0].at(z), sx, sy, boxes, centers)
         plain.append(_union([g for g in parts if not g.is_empty]))
         for job, sl, out in zip(jobs, job_slicers, solids):
             lo, hi = job.mesh.bounds
@@ -421,15 +455,14 @@ def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
         step = (lambda d, _t, q=q: progress(n * (1 + q) + d, total)) if progress else None
         for i, g in enumerate(hollow_layers(out, zc, job.state, job.holes, job.poles, step)):
             if not g.is_empty:
-                extra[i].append(g)
+                sx, sy, _sz = schedule[i]["scale"]
+                extra[i].append(_scaled(g, sx, sy, job.center))
 
     layers: list[Layer] = []
     for p, geom, more in zip(schedule, plain, extra):
         if more:
             geom = _union([g for g in [geom, *more] if not g.is_empty])
-        if p["index"] < resin.bottom_layers and resin.elephant_foot_mm > 0 and not geom.is_empty:
-            geom = _as_multi(geom.buffer(-resin.elephant_foot_mm, join_style="mitre"))
-        layers.append(Layer(geometry=geom, **p))
+        layers.append(Layer(geometry=geom, **{k: v for k, v in p.items() if k not in LAYER_ONLY}))
 
     return SliceResult(layers=layers, printer=printer, resin=resin,
                        model_bounds=bounds,

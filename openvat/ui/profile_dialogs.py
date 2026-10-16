@@ -182,7 +182,7 @@ class _LayerSettingsBox(QGroupBox):
         ("retract_speed", "Z retract speed (mm/s)", lambda: _double(0.1, 100, 0.5, 2)),
     ]
 
-    def __init__(self, title: str, parent=None):
+    def __init__(self, title: str, scale_tip: str = "", parent=None):
         super().__init__(title, parent)
         form = QFormLayout(self)
         self.widgets = {}
@@ -190,6 +190,14 @@ class _LayerSettingsBox(QGroupBox):
             w = make()
             form.addRow(label, w)
             self.widgets[attr] = w
+        row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0)
+        for axis in "xyz":                       # scale compensation, one factor per axis
+            sp = _double(0.5, 1.5, 0.001, 5); sp.setPrefix(f"{axis.upper()} ")   # 5: as PhotonWorkshop
+            sp.setToolTip(scale_tip)
+            rl.addWidget(sp)
+            self.widgets[f"scale_{axis}"] = sp
+        form.addRow("Scale (X Y Z)", row)
+        form.labelForField(row).setToolTip(scale_tip)
         self.form = form
 
     def load(self, settings: LayerSettings) -> None:
@@ -198,6 +206,17 @@ class _LayerSettingsBox(QGroupBox):
 
     def value(self) -> LayerSettings:
         return LayerSettings(**{attr: w.value() for attr, w in self.widgets.items()})
+
+
+_SCALE_HOW = ("X/Y: each model's outline is scaled about the model's own center\n"
+              "(its supports go with it).  Z: each layer stands for its thickness\n"
+              "divided by Z of the model, so 1.01 prints that part 1 % taller.\n"
+              "Transition layers ramp from the bottom values to the normal ones.")
+NORMAL_SCALE_TIP = ("Scale compensation for the normal layers, e.g. for resin shrinkage:\n"
+                    "1.01 prints a 20 mm cube 20.2 mm wide.\n\n" + _SCALE_HOW)
+BOTTOM_SCALE_TIP = ("Scale compensation for the bottom layers, which the long exposure\n"
+                    "makes spread out (elephant foot): below 1 prints them smaller,\n"
+                    "0.98 prints a 20 mm base 19.6 mm wide.\n\n" + _SCALE_HOW)
 
 
 class ResinDialog(_ProfileDialog):
@@ -216,38 +235,26 @@ class ResinDialog(_ProfileDialog):
         root.addLayout(top)
 
         columns = QHBoxLayout()
-        self.normal_box = _LayerSettingsBox("Normal layers")
-        self.bottom_box = _LayerSettingsBox("Bottom layers")
+        self.normal_box = _LayerSettingsBox("Normal layers", NORMAL_SCALE_TIP)
+        self.bottom_box = _LayerSettingsBox("Bottom layers", BOTTOM_SCALE_TIP)
         self.bottom_layers = _int(0, 100)
         self.bottom_box.form.insertRow(0, "Bottom layer count", self.bottom_layers)
-        self.elephant = _double(0, 2.0, 0.01, 3)
-        self.elephant.setSuffix(" mm inward")
-        tip = ("Elephant-foot compensation, applied to the bottom layers only.\n"
-               "Every outline edge is moved inward by this distance (a polygon offset,\n"
-               "not a radius or a scale): outer edges move in, holes grow.\n"
-               "Example: with 0.2 mm a 10 x 10 mm square becomes 9.6 x 9.6 mm,\n"
-               "and a 4 mm hole becomes 4.4 mm.")
-        self.elephant.setToolTip(tip)
-        self.bottom_box.form.addRow("Elephant foot (edge offset)", self.elephant)
-        self.bottom_box.form.labelForField(self.elephant).setToolTip(tip)
         columns.addWidget(self.bottom_box)
         columns.addWidget(self.normal_box)
         root.addLayout(columns)
 
-        extra = QGroupBox("Transition, anti-aliasing and shrinkage")
+        extra = QGroupBox("Transition and anti-aliasing")
         form = QFormLayout(extra)
         self.transition = _int(0, 100)
+        tip = ("Layers after the bottom layers whose exposure and scale ramp in equal\n"
+               "steps from the bottom values to the normal ones.")
+        self.transition.setToolTip(tip)
         form.addRow("Transition layers (bottom → normal)", self.transition)
+        form.labelForField(self.transition).setToolTip(tip)
         self.aa = QComboBox()
         for n in (1, 2, 4, 8, 16):
             self.aa.addItem("Off" if n == 1 else f"{n}x", n)
         form.addRow("Anti-aliasing", self.aa)
-        shrink = QWidget(); sl = QHBoxLayout(shrink); sl.setContentsMargins(0, 0, 0, 0)
-        self.shrink = []
-        for axis in "XYZ":
-            sp = _double(0.5, 1.5, 0.001, 4); sp.setPrefix(f"{axis} ")
-            sl.addWidget(sp); self.shrink.append(sp)
-        form.addRow("Shrinkage compensation (scale)", shrink)
 
         stretch = QGroupBox("Z stretch (first layers)")
         form = QFormLayout(stretch)
@@ -294,11 +301,8 @@ class ResinDialog(_ProfileDialog):
         self.normal_box.load(resin.normal)
         self.bottom_box.load(resin.bottom)
         self.bottom_layers.setValue(resin.bottom_layers)
-        self.elephant.setValue(resin.elephant_foot_mm)
         self.transition.setValue(resin.transition_layers)
         self.aa.setCurrentIndex(max(self.aa.findData(int(resin.anti_aliasing)), 0))
-        for sp, v in zip(self.shrink, (resin.shrink_x, resin.shrink_y, resin.shrink_z)):
-            sp.setValue(v)
         self.stretch_height.setValue(resin.stretch_height)
         self.stretch_factor.setValue(resin.stretch_factor)
         self._stretch_changed()
@@ -307,7 +311,7 @@ class ResinDialog(_ProfileDialog):
         h, f = self.stretch_height.value(), self.stretch_factor.value()
         self.stretch_factor.setEnabled(h > 0)
         if h <= 0 or f == 1.0:
-            self.stretch_note.setText("Off: every layer prints at the model's own height.")
+            self.stretch_note.setText("Off: the lowest layers are not stretched.")
         else:
             d = h * (f - 1)
             self.stretch_note.setText(f"The lowest {h:g} mm prints as {h * f:.2f} mm, so the whole "
@@ -323,12 +327,8 @@ class ResinDialog(_ProfileDialog):
             normal=self.normal_box.value(),
             bottom=self.bottom_box.value(),
             bottom_layers=self.bottom_layers.value(),
-            elephant_foot_mm=self.elephant.value(),
             transition_layers=self.transition.value(),
             anti_aliasing=self.aa.currentData(),
-            shrink_x=self.shrink[0].value(),
-            shrink_y=self.shrink[1].value(),
-            shrink_z=self.shrink[2].value(),
             stretch_height=self.stretch_height.value(),
             stretch_factor=self.stretch_factor.value(),
         )

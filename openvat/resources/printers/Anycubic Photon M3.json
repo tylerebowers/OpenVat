@@ -109,7 +109,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 3.0,
-        "retract_speed": 4.0
+        "retract_speed": 4.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -119,15 +122,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 3.0,
-        "retract_speed": 4.0
+        "retract_speed": 4.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     }
   ]
 }

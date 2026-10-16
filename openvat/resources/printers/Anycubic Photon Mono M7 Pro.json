@@ -171,7 +171,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -181,15 +184,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin Pro 2 (ACF, Fast 0.1 mm)",
@@ -205,7 +209,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -215,15 +222,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin Pro 2 (ACF, High quality 0.03 mm)",
@@ -239,7 +247,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -249,15 +260,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin Pro 2 (ACF, Normal 0.05 mm)",
@@ -273,7 +285,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -283,15 +298,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin Pro 2 (NFEP, High quality 0.03 mm)",
@@ -307,7 +323,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -317,15 +336,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin Pro 2 (NFEP, Normal 0.05 mm)",
@@ -341,7 +361,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -351,15 +374,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin V2 (ACF, Fast 0.1 mm)",
@@ -375,7 +399,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -385,15 +412,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin V2 (ACF, High quality 0.03 mm)",
@@ -409,7 +437,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -419,15 +450,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin V2 (ACF, Normal 0.05 mm)",
@@ -443,7 +475,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -453,15 +488,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin V2 (NFEP, High quality 0.03 mm)",
@@ -477,7 +513,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -487,15 +526,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic ABS Like Resin V2 (NFEP, Normal 0.05 mm)",
@@ -511,7 +551,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -521,15 +564,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Bio Resin (ACF, Fast 0.1 mm)",
@@ -545,7 +589,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -555,15 +602,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Bio Resin (ACF, High quality 0.03 mm)",
@@ -579,7 +627,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -589,15 +640,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Bio Resin (ACF, Normal 0.05 mm)",
@@ -613,7 +665,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -623,15 +678,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Bio Resin (NFEP, High quality 0.03 mm)",
@@ -647,7 +703,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -657,15 +716,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Bio Resin (NFEP, Normal 0.05 mm)",
@@ -681,7 +741,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -691,15 +754,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (ACF, Fast 0.1 mm)",
@@ -715,7 +779,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -725,15 +792,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (ACF, High quality 0.03 mm)",
@@ -749,7 +817,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -759,15 +830,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (ACF, Normal 0.05 mm)",
@@ -783,7 +855,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -793,15 +868,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (NFEP, Fast 0.1 mm)",
@@ -817,7 +893,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -827,15 +906,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (NFEP, High quality 0.03 mm)",
@@ -851,7 +931,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -861,15 +944,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DIY Color Mixing Resin (NFEP, Normal 0.05 mm)",
@@ -885,7 +969,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -895,15 +982,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DLP Craftsman Resin (ACF, Fast 0.1 mm)",
@@ -919,7 +1007,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -929,15 +1020,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DLP Craftsman Resin (ACF, High quality 0.03 mm)",
@@ -953,7 +1045,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -963,15 +1058,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DLP Craftsman Resin (ACF, Normal 0.05 mm)",
@@ -987,7 +1083,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -997,15 +1096,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DLP Craftsman Resin (NFEP, High quality 0.03 mm)",
@@ -1021,7 +1121,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1031,15 +1134,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic DLP Craftsman Resin (NFEP, Normal 0.05 mm)",
@@ -1055,7 +1159,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1065,15 +1172,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (ACF, Fast 0.1 mm)",
@@ -1089,7 +1197,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1099,15 +1210,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (ACF, High quality 0.03 mm)",
@@ -1123,7 +1235,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1133,15 +1248,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (ACF, Normal 0.05 mm)",
@@ -1157,7 +1273,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1167,15 +1286,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (NFEP, Fast 0.1 mm)",
@@ -1191,7 +1311,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1201,15 +1324,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (NFEP, High quality 0.03 mm)",
@@ -1225,7 +1349,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1235,15 +1362,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic HD Gray Resin (NFEP, Normal 0.05 mm)",
@@ -1259,7 +1387,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1269,15 +1400,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Clear Resin (ACF, Fast 0.1 mm)",
@@ -1293,7 +1425,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1303,15 +1438,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Clear Resin (ACF, High quality 0.03 mm)",
@@ -1327,7 +1463,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1337,15 +1476,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Clear Resin (ACF, Normal 0.05 mm)",
@@ -1361,7 +1501,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1371,15 +1514,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Clear Resin (NFEP, High quality 0.03 mm)",
@@ -1395,7 +1539,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1405,15 +1552,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Clear Resin (NFEP, Normal 0.05 mm)",
@@ -1429,7 +1577,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1439,15 +1590,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Speed Resin 2.0 (ACF, Fast 0.1 mm)",
@@ -1463,7 +1615,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1473,15 +1628,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Speed Resin 2.0 (ACF, Normal 0.05 mm)",
@@ -1497,7 +1653,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1507,15 +1666,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Speed Resin 2.0 (NFEP, Fast 0.1 mm)",
@@ -1531,7 +1691,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1541,15 +1704,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic High Speed Resin 2.0 (NFEP, Normal 0.05 mm)",
@@ -1565,7 +1729,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1575,15 +1742,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (ACF, Fast 0.1 mm)",
@@ -1599,7 +1767,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1609,15 +1780,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (ACF, High quality 0.03 mm)",
@@ -1633,7 +1805,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1643,15 +1818,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (ACF, Normal 0.05 mm)",
@@ -1667,7 +1843,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1677,15 +1856,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (NFEP, Fast 0.1 mm)",
@@ -1701,7 +1881,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1711,15 +1894,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (NFEP, High quality 0.03 mm)",
@@ -1735,7 +1919,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1745,15 +1932,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Plant Based Resin 2.0 (NFEP, Normal 0.05 mm)",
@@ -1769,7 +1957,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1779,15 +1970,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Rigid 100 Resin (ACF, Fast 0.1 mm)",
@@ -1803,7 +1995,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1813,15 +2008,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Rigid 100 Resin (ACF, High quality 0.03 mm)",
@@ -1837,7 +2033,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1847,15 +2046,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Rigid 100 Resin (ACF, Normal 0.05 mm)",
@@ -1871,7 +2071,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1881,15 +2084,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Rigid 100 Resin (NFEP, High quality 0.03 mm)",
@@ -1905,7 +2109,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -1915,15 +2122,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Rigid 100 Resin (NFEP, Normal 0.05 mm)",
@@ -1939,7 +2147,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -1949,15 +2160,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (ACF, Fast 0.1 mm)",
@@ -1973,7 +2185,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -1983,15 +2198,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (ACF, High quality 0.03 mm)",
@@ -2007,7 +2223,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2017,15 +2236,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (ACF, Normal 0.05 mm)",
@@ -2041,7 +2261,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2051,15 +2274,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (NFEP, Fast 0.1 mm)",
@@ -2075,7 +2299,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2085,15 +2312,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (NFEP, High quality 0.03 mm)",
@@ -2109,7 +2337,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2119,15 +2350,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin (NFEP, Normal 0.05 mm)",
@@ -2143,7 +2375,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2153,15 +2388,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (ACF, Fast 0.1 mm)",
@@ -2177,7 +2413,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2187,15 +2426,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (ACF, High quality 0.03 mm)",
@@ -2211,7 +2451,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2221,15 +2464,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (ACF, Normal 0.05 mm)",
@@ -2245,7 +2489,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2255,15 +2502,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (NFEP, Fast 0.1 mm)",
@@ -2279,7 +2527,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2289,15 +2540,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (NFEP, High quality 0.03 mm)",
@@ -2313,7 +2565,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2323,15 +2578,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin V2 (NFEP, Normal 0.05 mm)",
@@ -2347,7 +2603,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2357,15 +2616,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (ACF, Fast 0.1 mm)",
@@ -2381,7 +2641,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2391,15 +2654,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (ACF, High quality 0.03 mm)",
@@ -2415,7 +2679,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2425,15 +2692,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (ACF, Normal 0.05 mm)",
@@ -2449,7 +2717,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2459,15 +2730,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (NFEP, Fast 0.1 mm)",
@@ -2483,7 +2755,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2493,15 +2768,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (NFEP, High quality 0.03 mm)",
@@ -2517,7 +2793,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2527,15 +2806,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Standard Resin+ (NFEP, Normal 0.05 mm)",
@@ -2551,7 +2831,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2561,15 +2844,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Texture Resin (ACF, Fast 0.1 mm)",
@@ -2585,7 +2869,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2595,15 +2882,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Texture Resin (ACF, High quality 0.03 mm)",
@@ -2619,7 +2907,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2629,15 +2920,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Texture Resin (ACF, Normal 0.05 mm)",
@@ -2653,7 +2945,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2663,15 +2958,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Texture Resin (NFEP, High quality 0.03 mm)",
@@ -2687,7 +2983,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2697,15 +2996,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Texture Resin (NFEP, Normal 0.05 mm)",
@@ -2721,7 +3021,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2731,15 +3034,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin 2.0 (ACF, Fast 0.1 mm)",
@@ -2755,7 +3059,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2765,15 +3072,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin 2.0 (ACF, High quality 0.03 mm)",
@@ -2789,7 +3097,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2799,15 +3110,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin 2.0 (ACF, Normal 0.05 mm)",
@@ -2823,7 +3135,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2833,15 +3148,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin 2.0 (NFEP, High quality 0.03 mm)",
@@ -2857,7 +3173,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2867,15 +3186,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin 2.0 (NFEP, Normal 0.05 mm)",
@@ -2891,7 +3211,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -2901,15 +3224,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (ACF, Fast 0.1 mm)",
@@ -2925,7 +3249,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -2935,15 +3262,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (ACF, High quality 0.03 mm)",
@@ -2959,7 +3287,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -2969,15 +3300,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (ACF, Normal 0.05 mm)",
@@ -2993,7 +3325,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -3003,15 +3338,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (NFEP, Fast 0.1 mm)",
@@ -3027,7 +3363,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -3037,15 +3376,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (NFEP, High quality 0.03 mm)",
@@ -3061,7 +3401,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -3071,15 +3414,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Tough Resin Ultra (NFEP, Normal 0.05 mm)",
@@ -3095,7 +3439,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -3105,15 +3452,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (ACF, Fast 0.1 mm)",
@@ -3129,7 +3477,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -3139,15 +3490,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 4.0,
         "lift_speed": 15.0,
-        "retract_speed": 15.0
+        "retract_speed": 15.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (ACF, High quality 0.03 mm)",
@@ -3163,7 +3515,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -3173,15 +3528,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (ACF, Normal 0.05 mm)",
@@ -3197,7 +3553,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -3207,15 +3566,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (NFEP, Fast 0.1 mm)",
@@ -3231,7 +3591,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.1,
@@ -3241,15 +3604,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 6.0,
         "lift_speed": 10.0,
-        "retract_speed": 10.0
+        "retract_speed": 10.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 4,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (NFEP, High quality 0.03 mm)",
@@ -3265,7 +3629,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.03,
@@ -3275,15 +3642,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Anycubic Water Wash Resin+ (NFEP, Normal 0.05 mm)",
@@ -3299,7 +3667,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom": {
         "thickness": 0.05,
@@ -3309,15 +3680,16 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+        "scale_z": 1.0
       },
       "bottom_layers": 5,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.0,
-      "shrink_y": 1.0,
-      "shrink_z": 1.0
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     },
     {
       "name": "Standard Resin 0.05",
@@ -3333,7 +3705,10 @@
         "wait_after_lift": 0.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.01111,
+        "scale_y": 1.01111,
+        "scale_z": 1.055
       },
       "bottom": {
         "thickness": 0.05,
@@ -3343,15 +3718,16 @@
         "wait_after_lift": 15.0,
         "lift_distance": 8.0,
         "lift_speed": 6.0,
-        "retract_speed": 6.0
+        "retract_speed": 6.0,
+        "scale_x": 1.01111,
+        "scale_y": 1.01111,
+        "scale_z": 1.055
       },
       "bottom_layers": 3,
-      "elephant_foot_mm": 0.0,
       "transition_layers": 0,
       "anti_aliasing": 1,
-      "shrink_x": 1.01111,
-      "shrink_y": 1.01111,
-      "shrink_z": 1.055
+      "stretch_height": 0.0,
+      "stretch_factor": 1.0
     }
   ]
 }

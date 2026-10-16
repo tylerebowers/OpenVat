@@ -119,8 +119,8 @@ class SupportSettings:
 Trunk = tuple  # (x, y, split_z, base_z): a shared pillar that splits at split_z
 
 
-@dataclass
-class Support:
+@dataclass(eq=False)                    # compared by identity: value equality would compare the
+class Support:                          # numpy arrays, so list.remove() raised on the second support
     tip: np.ndarray                      # contact point on the part (world)
     owner_id: int | None = None          # id of the MeshObject it supports
     kind: str = "plate"                  # "plate" (to the build plate) or "nook" (stands on the part)

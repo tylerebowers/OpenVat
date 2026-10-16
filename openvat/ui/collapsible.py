@@ -112,6 +112,7 @@ class CollapsibleSection(QWidget):
         hl.setContentsMargins(6, 3, 10, 1)
         hl.addWidget(self.header)
         hl.addWidget(self.summary, stretch=1)
+        self._head_layout = hl
         head_row.setCursor(Qt.PointingHandCursor)
         head_row.mousePressEvent = lambda e: self.set_expanded(not self._expanded)
 
@@ -145,6 +146,12 @@ class CollapsibleSection(QWidget):
         p.drawPath(path)
 
     # ------------------------------------------------------------ state
+    def add_header_widget(self, widget: QWidget) -> None:
+        """A small control at the right end of the header (it takes its own
+        clicks, so it does not fold the card)."""
+        widget.setCursor(Qt.ArrowCursor)
+        self._head_layout.addWidget(widget)
+
     def set_summary(self, text: str) -> None:
         self.summary.setText(text)
 
