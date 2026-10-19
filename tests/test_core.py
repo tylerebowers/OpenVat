@@ -1544,3 +1544,105 @@ print(round(moved[0]), round(abs(moved[1]) + abs(moved[2]), 6), round(turned[2])
     assert abs(int(x) - 12) <= 1 and float(off_axis) == 0.0      # along X only
     assert abs(int(turned) - 45) <= 2                             # about Z, as far as the mouse went
     assert n_laid == "1" and normal == "[0.0, 0.0, 1.0]"
+
+
+def test_lay_flat_automatically_picks_the_best_face():
+    from openvat.core.orient import best_face, laid_on
+    def best_after(mesh, rotation):
+        obj = MeshObject("m", mesh)
+        obj.rotation[:] = rotation
+        obj.drop_to_plate()
+        choice = best_face(obj)
+        obj.rotation[:] = laid_on(obj.rotation, choice.normal)
+        obj.drop_to_plate()
+        return obj, choice
+    # the bracket stood on its tall leg goes back onto its long base: most on the plate, nothing to support
+    obj, c = best_after(_bracket(), [0, -90, 0])
+    assert (round(c.contact), round(c.overhang), round(c.height)) == (360, 0, 24)
+    assert obj.size() == pytest.approx([30, 12, 24])
+    # a mushroom prints upside down, on its cap: then nothing overhangs
+    mushroom = trimesh.boolean.union([trimesh.creation.box(extents=[4, 4, 10]).apply_translation([0, 0, 5]),
+                                      trimesh.creation.box(extents=[20, 20, 3]).apply_translation([0, 0, 11.5])])
+    obj, c = best_after(mushroom, [0, 0, 0])
+    assert c.overhang == pytest.approx(0) and c.contact == pytest.approx(400)
+    world = obj.transformed()
+    assert world.area_faces[(world.face_normals[:, 2] < -0.99) & (world.triangles_center[:, 2] < 0.01)].sum() \
+        == pytest.approx(400)
+    # a slab on its edge lies down flat (all faces are free of overhangs: the lowest print wins)
+    obj, c = best_after(trimesh.creation.box(extents=[40, 20, 4]), [90, 0, 0])
+    assert obj.size()[2] == pytest.approx(4)
+    # a cube stays as it is; a ball has nothing to lie on
+    cube = MeshObject("cube", trimesh.creation.box(extents=[20, 20, 20]))
+    assert best_face(cube).normal == pytest.approx([0, 0, -1])
+    assert best_face(MeshObject("ball", trimesh.creation.icosphere(3, 10))) is None
+
+
+def test_clone_many_with_supports_and_arrange():
+    scene = Scene()
+    slab = MeshObject("slab (3)", trimesh.creation.box(extents=[30, 20, 3]))
+    slab.drop_to_plate()
+    slab.position[2] += 20                                        # high enough for pillars to split
+    scene.add(slab)
+    scene.auto_supports(slab)
+    n = len(scene.supports)
+    assert n > 3 and any(s.trunk for s in scene.supports)          # some share a pillar
+    before = [s.state() for s in scene.supports]
+    made = scene.clone_many(slab, 5, arrange_on=PrinterProfile())
+    assert [o.name for o in scene.objects] == ["slab (3)", "slab", "slab (2)", "slab (4)", "slab (5)", "slab (6)"]
+    assert all(o.mesh is slab.mesh for o in made)                  # clones share the mesh
+    assert scene.selected is made[-1]
+    assert all(scene.fits(PrinterProfile()).values())
+    for o in scene.objects:                                       # each has its own copy of the supports...
+        mine = [s for s in scene.supports if s.owner_id == o.id]
+        assert len(mine) == n
+        lo, hi = o.world_bounds()                                 # ... under it, wherever it went
+        assert all(lo[0] <= s.tip[0] <= hi[0] and lo[1] <= s.tip[1] <= hi[1] for s in mine)
+        assert all(lo[0] - 6 <= s.trunk[0] <= hi[0] + 6 and lo[1] - 6 <= s.trunk[1] <= hi[1] + 6
+                   for s in mine if s.trunk)                     # and so are their shared pillars
+    assert len({s.id for s in scene.supports}) == len(scene.supports)
+    # moving one copy leaves the others' shared pillars alone
+    other = [s.trunk for s in scene.supports if s.owner_id == made[1].id]
+    scene.move_object(made[0], made[0].position + [3.0, 0.0, 0.0])
+    assert [s.trunk for s in scene.supports if s.owner_id == made[1].id] == other
+    # one undo takes back all of it
+    assert scene.undo_stack.undo()
+    assert scene.objects == [slab] and len(scene.supports) == n
+    assert all(np.allclose(s.state()["tip"], b["tip"]) for s, b in zip(scene.supports, before))
+    # without arranging they line up beside the model, off it
+    made = scene.clone_many(slab, 3)
+    boxes = [o.world_bounds() for o in [slab, *made]]
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert a[1][0] <= b[0][0] or b[1][0] <= a[0][0] or a[1][1] <= b[0][1] or b[1][1] <= a[0][1]
+
+
+def test_tool_tabs_stay_on_top():
+    """The tools column in two tabs; the tabs stay put while its cards scroll."""
+    code = '''
+from PySide6.QtWidgets import QApplication, QLabel
+app = QApplication([])
+from openvat.ui.collapsible import SectionColumn, CARD_GAP
+col = SectionColumn(240)
+for k in "abcd":
+    lab = QLabel("x"); lab.setFixedHeight(150)
+    col.add(k, k.upper(), lab)
+col.set_pages([("One", ["a", "b", "c"]), ("Two", ["d"])])
+col.finish(); col.resize(240, 300); col.show(); app.processEvents()
+shown = lambda: "".join(k for k, c in col.sections.items() if not c.isHidden())
+top = col._tabs.geometry().bottom() + 1 + CARD_GAP
+first = col.sections["a"].geometry().y()
+col.scroll_to(10_000); app.processEvents()
+print(shown(), first == top, col.offset > 0, col._tabs.geometry().y(), col.sections["a"].geometry().y() < top,
+      not col.mask().contains(col._tabs.geometry().bottomLeft() + __import__("PySide6.QtCore").QtCore.QPoint(20, 3)))
+scrolled = col.offset
+col.show_page(1); app.processEvents()
+print(shown(), col.offset, col.current_page())
+col.show_page(0); app.processEvents()
+print(shown(), col.offset == scrolled)
+'''
+    r = _run_python(code, {"QT_QPA_PLATFORM": "offscreen"})
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.split("\n")
+    assert lines[0] == "abc True True 0 True True"      # cards under the tabs are clipped, the tabs stay at 0
+    assert lines[1] == "d 0 1"
+    assert lines[2] == "abc True"                      # each tab keeps its scroll position

@@ -34,7 +34,7 @@ from PySide6.QtWidgets import QWidget, QApplication
 
 from ..core.hollow import hole_world, hole_depth, lattice_segments, cavity_clip, tubes
 from ..core.mesh import MeshObject
-from ..core.orient import DOWN, flat_faces, rotated_about
+from ..core.orient import DOWN, flat_faces_of, rotated_about
 from ..core.profiles import PrinterProfile
 from ..core.raycast import ray_mesh_closest, ray_mesh_first
 from ..core.scene import Scene
@@ -85,6 +85,7 @@ void main() {
 COLOR_OUTSIDE = (0.90, 0.30, 0.30, 1.0)
 COLOR_HOLE = (0.93, 0.36, 0.26, 1.0)       # drain holes
 XRAY_ALPHA = 0.28                          # hollow models with "Show inside"
+SEE_THROUGH_ALPHA = 0.5                    # View -> Semi-transparent models
 HOLE_MARK_OUT = 0.3                        # mm a hole marker stands out of the surface
 PLATE_ALPHA = 0.55                 # the build plate is see-through (models show from below)
 
@@ -263,8 +264,9 @@ class Viewport3D(QOpenGLWidget):
         self.show_rotate = False                # rotate rings on the selected model
         self.lay_face_mode = False              # its flat faces highlighted: a click lays it on one
         self._gizmo_buffers: tuple[GLBuffer, GLBuffer] | None = None    # unit arrow, unit ring
-        self._flat: dict[int, tuple] = {}       # obj id -> (mesh, [FlatFace]) it can be laid on
-        self._flat_buffers: dict[int, tuple] = {}   # obj id -> (mesh, [GLBuffer]) of those faces
+        self._flat_buffers: dict[int, tuple] = {}   # id(mesh) -> (mesh, [GLBuffer]) of its flat faces
+        self.show_plate = True                  # View -> Build plate (the volume's outline always shows)
+        self.see_through = False                # View -> Semi-transparent models
         self._hover = None                      # ("move" | "rotate", axis) or ("face", index) under the mouse
         self._gizmo_drag: dict | None = None    # while an arrow or ring is dragged
         self.setMinimumSize(400, 300)
@@ -274,12 +276,13 @@ class Viewport3D(QOpenGLWidget):
 
         self._program = 0
         self._uniforms: dict[str, int] = {}
-        self._meshes: dict[int, tuple[tuple, GLBuffer, bool]] = {}   # obj id -> (cache key, buffer, closed)
+        self._meshes: dict[int, tuple] = {}     # id(mesh) -> (mesh, buffer, closed): clones share one
         self._support_meshes: dict[int, tuple[tuple, GLBuffer]] = {}
         self._extra_buffer: GLBuffer | None = None               # all supports, braces and raft
         self._extras_version = -1
-        self._plate: GLBuffer | None = None
+        self._plate: GLBuffer | None = None       # grid lines on the plate
         self._plate_fill: GLBuffer | None = None
+        self._volume: GLBuffer | None = None      # the build volume's outline
         self._plate_key = None
 
         self._last_pos = QPoint()
@@ -387,10 +390,12 @@ class Viewport3D(QOpenGLWidget):
         GL.glUseProgram(self._program)
         self._sync_plate()
         fill, grid = self._plate_colors()
-        GL.glDepthMask(GL.GL_FALSE)
-        self._draw(self._plate_fill, np.eye(4), vp, fill, lit=False)
-        GL.glDepthMask(GL.GL_TRUE)
-        self._draw(self._plate, np.eye(4), vp, grid, lit=False)
+        if self.show_plate:
+            GL.glDepthMask(GL.GL_FALSE)
+            self._draw(self._plate_fill, np.eye(4), vp, fill, lit=False)
+            GL.glDepthMask(GL.GL_TRUE)
+            self._draw(self._plate, np.eye(4), vp, grid, lit=False)
+        self._draw(self._volume, np.eye(4), vp, grid, lit=False)
         if self._gizmo_object() is not None and (self.show_move or self.show_rotate):
             self._draw_gizmos(vp)
         GL.glUseProgram(0)
@@ -408,7 +413,7 @@ class Viewport3D(QOpenGLWidget):
         the triangles that faces away)."""
         GL.glCullFace(GL.GL_BACK)
         fits = self.scene.fits(self.printer)
-        see_through = []                          # hollow models with "Show inside": drawn last
+        see_through = []                          # see-through models (and hollow ones with "Show inside"): last
         for obj in self.scene.objects:
             if not obj.visible:
                 continue
@@ -419,8 +424,11 @@ class Viewport3D(QOpenGLWidget):
                 color = COLOR_OUTSIDE
             else:
                 color = self.colors["model"]
+            if self.see_through:
+                see_through.append((glm, obj, (*color[:3], SEE_THROUGH_ALPHA)))
+                continue
             if self.show_inside and obj.hollow is not None:
-                see_through.append((glm, obj, color))
+                see_through.append((glm, obj, (*color[:3], XRAY_ALPHA)))
                 continue
             model = obj.matrix()
             if closed or self.cull_back_faces:
@@ -436,8 +444,6 @@ class Viewport3D(QOpenGLWidget):
         if sel is not None:
             self._draw(self._support_mesh_for(sel), np.eye(4), vp, self.colors["support_selected"])
         self._draw(self._support_buffer(), np.eye(4), vp, self.colors["support"])
-        if self.lay_face_mode and self._gizmo_object() is not None:
-            self._draw_flat_faces(self._gizmo_object(), vp)
 
         for obj in self.scene.objects:            # drain holes, and inside: the internal supports
             if not obj.visible:
@@ -456,10 +462,12 @@ class Viewport3D(QOpenGLWidget):
             for face in (GL.GL_FRONT, GL.GL_BACK):
                 GL.glCullFace(face)
                 for glm, obj, color in see_through:
-                    self._draw(glm, obj.matrix(), vp, (*color[:3], XRAY_ALPHA))
+                    self._draw(glm, obj.matrix(), vp, color)
             GL.glDepthMask(GL.GL_TRUE)
             GL.glCullFace(GL.GL_BACK)
         GL.glDisable(GL.GL_CULL_FACE)
+        if self.lay_face_mode and self._gizmo_object() is not None:
+            self._draw_flat_faces(self._gizmo_object(), vp)
 
     # ------------------------------------------------------------ gizmos
     def set_tools(self, move: bool | None = None, rotate: bool | None = None,
@@ -474,6 +482,14 @@ class Viewport3D(QOpenGLWidget):
             self.lay_face_mode = lay_face
         self._hover = None
         self.setMouseTracking(self.show_move or self.show_rotate or self.lay_face_mode)   # hover highlight
+        self.update()
+
+    def set_view_options(self, plate: bool | None = None, see_through: bool | None = None) -> None:
+        """View menu: show the build plate, draw the models semi-transparent."""
+        if plate is not None:
+            self.show_plate = plate
+        if see_through is not None:
+            self.see_through = see_through
         self.update()
 
     def _gizmo_object(self) -> MeshObject | None:
@@ -506,15 +522,11 @@ class Viewport3D(QOpenGLWidget):
 
     def _flat_faces_of(self, obj: MeshObject) -> list:
         """The faces the model can be laid on (worked out once per mesh)."""
-        entry = self._flat.get(obj.id)
-        if entry is None or entry[0] is not obj.mesh:
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                entry = (obj.mesh, flat_faces(obj.mesh))
-            finally:
-                QApplication.restoreOverrideCursor()
-            self._flat[obj.id] = entry
-        return entry[1]
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            return flat_faces_of(obj)
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def lay_candidates(self, obj: MeshObject) -> list[tuple[int, np.ndarray]]:
         """(index, world normal) of the faces to offer: all but the one the
@@ -531,15 +543,18 @@ class Viewport3D(QOpenGLWidget):
 
     def _draw_flat_faces(self, obj: MeshObject, vp: np.ndarray) -> None:
         faces = self._flat_faces_of(obj)
-        entry = self._flat_buffers.get(obj.id)
+        entry = self._flat_buffers.get(id(obj.mesh))
         if entry is None or entry[0] is not obj.mesh:
             if entry:
                 for b in entry[1]:
                     b.release()
+            if len(self._flat_buffers) >= 8:                   # the last few models are plenty
+                for b in self._flat_buffers.pop(next(iter(self._flat_buffers)))[1]:
+                    b.release()
             mesh = obj.mesh
             entry = (mesh, [GLBuffer.triangles(mesh.vertices, mesh.faces[f.faces], mesh.face_normals[f.faces])
                             for f in faces])
-            self._flat_buffers[obj.id] = entry
+            self._flat_buffers[id(mesh)] = entry
         model = obj.matrix()
         GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)            # drawn on the model's own surface
         GL.glPolygonOffset(-1.0, -4.0)
@@ -741,17 +756,24 @@ class Viewport3D(QOpenGLWidget):
     def _mesh_for(self, obj: MeshObject) -> tuple[GLBuffer, bool]:
         """The object's GPU buffer, and whether the mesh is closed with its
         faces pointing out (then back faces can be skipped)."""
-        key = (id(obj.mesh), len(obj.mesh.faces))
-        entry = self._meshes.get(obj.id)
-        if entry is None or entry[0] != key:
+        entry = self._meshes.get(id(obj.mesh))
+        if entry is None or entry[0] is not obj.mesh:
             if entry:
                 entry[1].release()
+            self._prune_meshes()
             try:
                 closed = bool(obj.mesh.is_volume)
             except Exception:                                    # pragma: no cover
                 closed = False
-            self._meshes[obj.id] = (key, GLBuffer.from_trimesh(obj.mesh), closed)
-        return self._meshes[obj.id][1], self._meshes[obj.id][2]
+            entry = self._meshes[id(obj.mesh)] = (obj.mesh, GLBuffer.from_trimesh(obj.mesh), closed)
+        return entry[1], entry[2]
+
+    def _prune_meshes(self) -> None:
+        """Free the GPU buffers of meshes no model uses any more (an undo
+        that brings one back uploads it again)."""
+        used = {id(o.mesh) for o in self.scene.objects}
+        for key in [k for k in self._meshes if k not in used]:
+            self._meshes.pop(key)[1].release()
 
     def _support_mesh_for(self, sup: Support) -> GLBuffer:
         """Buffer for one support (used to highlight the selected one)."""
@@ -779,11 +801,11 @@ class Viewport3D(QOpenGLWidget):
         return self._extra_buffer
 
     def invalidate_object(self, obj: MeshObject) -> None:
-        """Call after the source mesh changed (mirror / repair)."""
-        entry = self._meshes.pop(obj.id, None)
-        if entry:
+        """Call after the source mesh changed (mirror / repair): the new mesh
+        gets its own buffer at the next frame, the old one is freed."""
+        if self._meshes and self.isValid():
             self.makeCurrent()
-            entry[1].release()
+            self._prune_meshes()
             self.doneCurrent()
         self.update()
 
@@ -793,6 +815,9 @@ class Viewport3D(QOpenGLWidget):
         if key == self._plate_key:
             return
         self._plate_key = key
+        for buf in (self._plate, self._plate_fill, self._volume):
+            if buf is not None:
+                buf.release()
         hx, hy, hz = p.print_x / 2, p.print_y / 2, p.print_z
         lines = []
         step = 10.0
@@ -800,11 +825,12 @@ class Viewport3D(QOpenGLWidget):
             lines += [[x, -hy, 0], [x, hy, 0]]
         for y in np.arange(-hy, hy + 1e-6, step):
             lines += [[-hx, y, 0], [hx, y, 0]]
-        # build volume outline
+        self._plate = GLBuffer.lines(np.array(lines, dtype=np.float32))
+        box = []                                  # the build volume's outline
         corners = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
         for (x0, y0), (x1, y1) in zip(corners, corners[1:] + corners[:1]):
-            lines += [[x0, y0, 0], [x1, y1, 0], [x0, y0, hz], [x1, y1, hz], [x0, y0, 0], [x0, y0, hz]]
-        self._plate = GLBuffer.lines(np.array(lines, dtype=np.float32))
+            box += [[x0, y0, 0], [x1, y1, 0], [x0, y0, hz], [x1, y1, hz], [x0, y0, 0], [x0, y0, hz]]
+        self._volume = GLBuffer.lines(np.array(box, dtype=np.float32))
         quad = np.array([[-hx, -hy, -0.05], [hx, -hy, -0.05], [hx, hy, -0.05], [-hx, hy, -0.05]])
         self._plate_fill = GLBuffer.triangles(quad, np.array([[0, 1, 2], [0, 2, 3]]), np.array([[0, 0, 1.0]] * 2))
 

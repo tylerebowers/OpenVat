@@ -14,6 +14,7 @@ ends up below the build plate.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -145,3 +146,81 @@ def flat_faces(mesh: trimesh.Trimesh, limit: int = 24, min_share: float = 0.01,
                 break
     found.sort(key=lambda f: -f.area)
     return [f for f in found if f.area >= min_of_largest * found[0].area]
+
+
+_FLAT: dict[int, tuple[trimesh.Trimesh, list[FlatFace]]] = {}     # id(mesh) -> (mesh, faces)
+
+
+def flat_faces_of(obj) -> list[FlatFace]:
+    """``flat_faces`` of a MeshObject's source mesh, worked out once per mesh
+    (clones share their mesh; mirroring or repairing makes a new one)."""
+    entry = _FLAT.get(id(obj.mesh))
+    if entry is None or entry[0] is not obj.mesh:
+        if len(_FLAT) >= 32:                                       # keep the last few models
+            _FLAT.pop(next(iter(_FLAT)))
+        entry = _FLAT[id(obj.mesh)] = (obj.mesh, flat_faces(obj.mesh))   # holds the mesh: the id stays its own
+    return entry[1]
+
+
+def world_normal(obj, face: FlatFace) -> np.ndarray:
+    """The face's outward normal as the model stands now."""
+    n = np.linalg.inv(obj.matrix()[:3, :3]).T @ face.normal      # normals follow the inverse transpose
+    return n / np.linalg.norm(n)
+
+
+OVERHANG = 45.0        # deg: surfaces facing down steeper than this need supports
+
+
+@dataclass(eq=False)
+class LayChoice:
+    """How the model would print lying on one of its flat faces."""
+    index: int                  # into flat_faces
+    normal: np.ndarray          # world normal of that face now (it goes straight down)
+    contact: float              # mm^2 on the plate
+    overhang: float             # mm^2 facing down steeper than OVERHANG, off the plate (needs supports)
+    height: float               # mm, how tall it prints
+
+
+def lay_choices(obj, overhang_deg: float = OVERHANG, world: trimesh.Trimesh | None = None) -> list[LayChoice]:
+    """Every flat face the model can lie on, with what laying it there
+    gives.  Worked out on the model as it is scaled now (``world``: its
+    transformed mesh, if already at hand)."""
+    faces = flat_faces_of(obj)
+    if not faces:
+        return []
+    world = obj.transformed() if world is None else world
+    normals = np.asarray(world.face_normals)
+    areas = np.asarray(world.area_faces)
+    centers = np.asarray(world.triangles_center)
+    verts = np.asarray(world.vertices)
+    steep = math.cos(math.radians(overhang_deg))
+    tol = max(1e-3 * float(world.scale), 0.05)                     # this close to the plate prints on it
+    out = []
+    for i, f in enumerate(faces):
+        n = world_normal(obj, f)
+        level = verts @ n                                            # height above the plate = d - level
+        d = float(level.max())
+        down = normals @ n > steep
+        off_plate = d - centers @ n > tol
+        out.append(LayChoice(i, n, float(areas[f.faces].sum()), float(areas[down & off_plate].sum()),
+                             d - float(level.min())))
+    return out
+
+
+def best_lay(choices: list[LayChoice], surface: float) -> LayChoice | None:
+    """The best face to lay the model on: the least surface left needing
+    supports for the most on the plate (overhang minus contact); choices
+    within 2 % of the model's ``surface`` of each other count as equal, and
+    then the one that prints lowest (fewer layers) wins."""
+    if not choices:
+        return None
+    best = min(c.overhang - c.contact for c in choices)
+    close = [c for c in choices if c.overhang - c.contact <= best + 0.02 * surface]
+    # then: prints lowest, most on the plate, and rather the way it lies already
+    return min(close, key=lambda c: (round(c.height, 3), -round(c.contact, 3), float(c.normal @ DOWN < 1 - 1e-6)))
+
+
+def best_face(obj, overhang_deg: float = OVERHANG) -> LayChoice | None:
+    """``best_lay`` of the model's flat faces (None: it has none)."""
+    world = obj.transformed()
+    return best_lay(lay_choices(obj, overhang_deg, world), float(world.area))

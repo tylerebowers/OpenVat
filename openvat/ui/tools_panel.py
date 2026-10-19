@@ -1,7 +1,7 @@
-"""Left-hand model editing panel: position / rotation / scale / edit /
-supports / hollowing.  Each group is a collapsible, resizable section whose
-header shows a summary while folded.  Every control acts on
-``scene.selected``.
+"""Left-hand model editing panel, in two tabs: Manipulation (position /
+rotation / scale / edit) and Preparation (supports / hollowing).  Each
+group is a collapsible, resizable section whose header shows a summary
+while folded.  Every control acts on ``scene.selected``.
 
 Hollowing goes in order: drain holes first (click the model), then Hollow
 (wall thickness from the settings window), then internal supports."""
@@ -14,11 +14,13 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF, QSize, QEvent
 from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap, QColor
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QDoubleSpinBox, QPushButton,
-                               QLabel, QCheckBox, QComboBox, QMessageBox, QApplication, QToolButton)
+                               QLabel, QCheckBox, QComboBox, QMessageBox, QApplication, QToolButton,
+                               QDialog, QDialogButtonBox, QFormLayout, QSpinBox, QVBoxLayout)
 
 from ..core.scene import Scene
 from ..core.hollow import HollowState, hole_from_world, hole_world, describe
-from ..core.orient import laid_on
+from ..core.orient import DOWN, best_face, laid_on
+from ..core.profiles import PrinterProfile
 from ..core.placement import manual_support
 from ..core.supports import DENSITY_SPACING
 from .collapsible import SectionColumn
@@ -57,6 +59,8 @@ class ToolsPanel(SectionColumn):
         self.sections["rotation"].add_header_widget(self.rotate_eye)
         self.move_eye.toggled.connect(self.move_tool_toggled)
         self.rotate_eye.toggled.connect(self.rotate_tool_toggled)
+        self.set_pages([("Manipulation", ["position", "rotation", "scale", "edit"]),
+                        ("Preparation", ["supports", "hollow"])])
         self.finish()
 
         scene.listeners.append(self.refresh)
@@ -108,6 +112,18 @@ class ToolsPanel(SectionColumn):
                                 "the build plate); click one to put the model down on it")
         self.lay_btn.toggled.connect(self.lay_face_toggled)
         g.addWidget(reset, 3, 0, 1, 2); g.addWidget(self.lay_btn, 3, 2, 1, 2)
+        self.best_btn = QPushButton("Lay flat automatically")
+        self.best_btn.setToolTip("Put the model down on its best flat face: the one that leaves the least\n"
+                                 "surface needing supports (facing down steeper than 45°) for the most on\n"
+                                 "the plate; when that is a close call, the one that prints lowest")
+        self.best_btn.clicked.connect(self._lay_best)
+        g.addWidget(self.best_btn, 4, 0, 1, 4)
+        self.lay_info = QLabel("")
+        self.lay_info.setWordWrap(True)
+        self.lay_info.setStyleSheet("color: #888;")
+        self.lay_info.hide()
+        g.addWidget(self.lay_info, 5, 0, 1, 4)
+        self.lay_message: tuple | None = None       # (object, its rotation, text) after Lay flat automatically
         return w
 
     def _build_scale(self) -> QWidget:
@@ -146,10 +162,17 @@ class ToolsPanel(SectionColumn):
             b.clicked.connect(lambda _=False, a=i: self._mirror(a))
             g.addWidget(b, 0, 1 + i)
         clone = QPushButton("Clone"); clone.clicked.connect(self.clone_selected)
+        clone.setToolTip("One copy beside the model, with its supports (Ctrl+D)")
+        self.clones_btn = _ThemedButton(_copies_icon, "Clone several times…")
+        self.clones_btn.clicked.connect(self.clone_many_selected)
         repair = QPushButton("Repair mesh"); repair.clicked.connect(self.repair_selected)
         delete = QPushButton("Delete"); delete.clicked.connect(self.delete_selected)
-        g.addWidget(clone, 1, 0, 1, 2); g.addWidget(repair, 1, 2, 1, 2)
+        row = QHBoxLayout(); row.setSpacing(4)
+        row.addWidget(clone, stretch=1); row.addWidget(self.clones_btn); row.addWidget(repair, stretch=1)
+        g.addLayout(row, 1, 0, 1, 4)
         g.addWidget(delete, 2, 0, 1, 4)
+        self.clone_count, self.clone_arrange = 4, True      # the window starts with the last choice
+        self.printer = lambda: PrinterProfile()             # the printer Auto-arrange packs for (main window)
         return w
 
     def _build_hollowing(self) -> QWidget:
@@ -225,8 +248,13 @@ class ToolsPanel(SectionColumn):
         obj = self.scene.selected
         self._updating = True
         enabled = obj is not None
-        for w in (*self.pos_spins, *self.rot_spins, *self.scale_spins, *self.mm_spins, self.lay_btn):
+        for w in (*self.pos_spins, *self.rot_spins, *self.scale_spins, *self.mm_spins, self.lay_btn,
+                  self.best_btn, self.clones_btn):
             w.setEnabled(enabled)
+        msg = self.lay_message
+        shown = msg is not None and msg[0] is obj and np.allclose(msg[1], obj.rotation)
+        self.lay_info.setText(msg[2] if shown else "")
+        self.lay_info.setVisible(shown)
         sec = self.sections
         if obj is not None:
             for sp, v in zip(self.pos_spins, obj.position):
@@ -393,6 +421,32 @@ class ToolsPanel(SectionColumn):
         obj.rotate(axis, deg)
         self.scene.changed()
 
+    def _lay_best(self) -> None:
+        """Lay flat automatically: the best of the model's flat faces down."""
+        obj = self.scene.selected
+        if obj is None:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            best = best_face(obj)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if best is None:
+            text = "This model has no flat face it can lie on."
+        else:
+            if best.normal @ DOWN < 1 - 1e-6:
+                self.scene.push_undo()
+                obj.rotation[:] = laid_on(obj.rotation, best.normal)
+                obj.drop_to_plate()
+                head = "Laid on its best face"
+            else:
+                head = "Already on its best face"
+            support = (f"{best.overhang:.0f} mm² facing down to support" if best.overhang >= 1
+                       else "nothing facing down to support")
+            text = f"{head}: {best.contact:.0f} mm² on the plate, {support}, {best.height:.1f} mm tall."
+        self.lay_message = (obj, obj.rotation.copy(), text)
+        self.scene.changed()
+
     def lay_on_face(self, obj, normal) -> None:
         """A click on a highlighted face: turn the model so it lies on it."""
         if obj is None:
@@ -462,6 +516,21 @@ class ToolsPanel(SectionColumn):
     def clone_selected(self) -> None:
         if self.scene.selected:
             self.scene.clone(self.scene.selected)
+
+    def clone_many_selected(self) -> None:
+        """The copies button: how many clones, and arrange the plate after."""
+        obj = self.scene.selected
+        if obj is None:
+            return
+        dlg = CloneDialog(obj.name, self.clone_count, self.clone_arrange, self)
+        if not dlg.exec():
+            return
+        self.clone_count, self.clone_arrange = dlg.count.value(), dlg.arrange.isChecked()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.scene.clone_many(obj, self.clone_count, self.printer() if self.clone_arrange else None)
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def delete_selected(self) -> None:
         if self.scene.selected:
@@ -588,30 +657,89 @@ def _eye_pixmap(color: QColor, open_: bool, size: int = 18, ratio: float = 2.0) 
     return pm
 
 
-class _EyeButton(QToolButton):
-    """A small checkable eye for a card header (on: the tool shows).  The
-    icon follows the theme's text color."""
+class _ThemedButton(QToolButton):
+    """A small icon button whose icon is drawn in the theme's text color
+    (and redrawn when the theme changes)."""
 
-    def __init__(self, tip: str):
+    def __init__(self, make_icon, tip: str, checkable: bool = False, flat: bool = False):
         super().__init__()
-        self.setCheckable(True)
-        self.setAutoRaise(True)
+        self._make_icon = make_icon
+        self.setCheckable(checkable)
+        self.setAutoRaise(flat)
         self.setToolTip(tip)
         self.setIconSize(QSize(18, 18))
-        self._paint_icon()
-
-    def _paint_icon(self) -> None:
-        color = self.palette().buttonText().color()
-        icon = QIcon()
-        icon.addPixmap(_eye_pixmap(color, True), QIcon.Normal, QIcon.On)
-        icon.addPixmap(_eye_pixmap(color, False), QIcon.Normal, QIcon.Off)
-        self.setIcon(icon)
+        self.setIcon(make_icon(self.palette().buttonText().color()))
 
     def changeEvent(self, e) -> None:
         if e.type() in (QEvent.PaletteChange, QEvent.StyleChange):
-            self._paint_icon()
+            self.setIcon(self._make_icon(self.palette().buttonText().color()))
         super().changeEvent(e)
 
 
+def _eye_icon(color: QColor) -> QIcon:
+    icon = QIcon()
+    icon.addPixmap(_eye_pixmap(color, True), QIcon.Normal, QIcon.On)
+    icon.addPixmap(_eye_pixmap(color, False), QIcon.Normal, QIcon.Off)
+    return icon
+
+
 def _eye_button(tip: str) -> QToolButton:
-    return _EyeButton(tip)
+    """A small checkable eye for a card header (on: the tool shows)."""
+    return _ThemedButton(_eye_icon, tip, checkable=True, flat=True)
+
+
+
+class CloneDialog(QDialog):
+    """How many copies of the selected model, and whether to arrange the
+    plate afterwards."""
+
+    def __init__(self, name: str, count: int, arrange: bool, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Clone")
+        root = QVBoxLayout(self)
+        label = QLabel(f"Copies of <b>{name}</b>, each with its supports:")
+        label.setTextFormat(Qt.RichText)
+        root.addWidget(label)
+        form = QFormLayout()
+        self.count = QSpinBox()
+        self.count.setRange(1, 200)
+        self.count.setValue(max(1, min(int(count), 200)))
+        form.addRow("Number of copies", self.count)
+        root.addLayout(form)
+        self.arrange = QCheckBox("Auto-arrange the plate afterwards")
+        self.arrange.setChecked(arrange)
+        self.arrange.setToolTip("Pack every model on the plate once the copies are made\n"
+                                "(otherwise the copies line up beside the model)")
+        root.addWidget(self.arrange)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Clone")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        self.count.selectAll()
+
+
+def _copies_icon(color: QColor, size: int = 18, ratio: float = 2.0) -> QIcon:
+    """Two stacked squares with a plus: "several copies"."""
+    pm = QPixmap(int(size * ratio), int(size * ratio))
+    pm.setDevicePixelRatio(ratio)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = QColor(color)
+    back = QColor(c)
+    back.setAlphaF(0.55)
+    p.setPen(QPen(back, 1.3))
+    p.drawRoundedRect(QRectF(2.5, 2.5, 9.5, 9.5), 1.8, 1.8)
+    front = QRectF(6.0, 6.0, 9.5, 9.5)
+    p.setCompositionMode(QPainter.CompositionMode_Clear)      # the front square hides the back one
+    p.fillRect(front.adjusted(-1.0, -1.0, 1.0, 1.0), Qt.transparent)
+    p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+    p.setPen(QPen(c, 1.4))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(front, 1.8, 1.8)
+    mid = front.center()
+    p.drawLine(QPointF(mid.x() - 2.6, mid.y()), QPointF(mid.x() + 2.6, mid.y()))
+    p.drawLine(QPointF(mid.x(), mid.y() - 2.6), QPointF(mid.x(), mid.y() + 2.6))
+    p.end()
+    return QIcon(pm)

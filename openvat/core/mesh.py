@@ -107,7 +107,9 @@ class MeshObject:                       # would compare the numpy arrays and rai
         self.drop_to_plate()
 
     def clone(self) -> "MeshObject":
-        c = MeshObject(name=self.name, mesh=self.mesh.copy(),
+        """A copy sharing the source mesh (it is never changed in place:
+        mirror and repair make a new one), so many clones cost little."""
+        c = MeshObject(name=self.name, mesh=self.mesh,
                        position=self.position.copy(), rotation=self.rotation.copy(),
                        scale=self.scale.copy(), elevation=self.elevation,
                        holes=self.holes, hollow=self.hollow)

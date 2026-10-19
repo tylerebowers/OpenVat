@@ -145,6 +145,12 @@ class Support:                          # numpy arrays, so list.remove() raised 
         for k, v in state.items():
             setattr(self, k, _copy(v))
 
+    def copy_for(self, owner_id: int | None) -> "Support":
+        """The same support for another object (a clone sitting where this
+        one's object is) - with its own id."""
+        state = self.state()
+        return Support(owner_id=owner_id, **state)
+
     def move_xy(self, dx: float, dy: float) -> None:
         self.tip[0] += dx
         self.tip[1] += dy

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from typing import Callable
 
+import math
+import re
+
 import numpy as np
 from shapely.ops import unary_union
 
@@ -70,11 +73,36 @@ class Scene:
         self.changed()
 
     def clone(self, obj: MeshObject) -> MeshObject:
-        c = obj.clone()
-        c.name = _unique_name(obj.name, [o.name for o in self.objects])
-        c.position[0] += obj.size()[0] + 5.0
-        self.add(c)
-        return c
+        """One copy next to the object, with its supports."""
+        return self.clone_many(obj, 1)[0]
+
+    def clone_many(self, obj: MeshObject, count: int, arrange_on: PrinterProfile | None = None,
+                   spacing: float = 5.0) -> list[MeshObject]:
+        """``count`` copies of the object, each with a copy of its supports,
+        in rows next to it (or the whole plate arranged afterwards when
+        ``arrange_on`` is a printer).  One undo step; the last copy ends up
+        selected."""
+        if count < 1:
+            return []
+        self.push_undo()
+        size = obj.size()
+        per_row = max(1, math.ceil(math.sqrt(count)))      # a square-ish block beside the original
+        base = re.sub(r" \(\d+\)$", "", obj.name)          # "part (3)" clones as "part (4)", not "part (3) (2)"
+        mine = [s for s in self.supports if s.owner_id == obj.id]
+        made = []
+        for i in range(count):
+            c = obj.clone()
+            c.name = _unique_name(base, [o.name for o in self.objects])
+            self.objects.append(c)
+            self.supports += [s.copy_for(c.id) for s in mine]
+            col, row = i % per_row, i // per_row
+            self.move_object(c, c.position + [(col + 1) * (size[0] + spacing), -row * (size[1] + spacing), 0.0])
+            made.append(c)
+        if arrange_on is not None:
+            self._arrange(arrange_on)
+        self.selected, self.selected_support = made[-1], None
+        self.changed()
+        return made
 
     def move_object(self, obj: MeshObject, new_position: np.ndarray) -> None:
         """Move an object and carry its supports along with it."""
@@ -87,12 +115,10 @@ class Scene:
                     s.foot = tuple(float(v) for v in np.add(s.foot, delta))
                 if s.route:                       # so does a detour around it
                     s.route = tuple(tuple(float(v) for v in np.add(j, delta)) for j in s.route)
-        trunks = {s.trunk for s in self.supports if s.owner_id == obj.id and s.trunk is not None}
-        for t in trunks:                          # shared pillars move with their contacts
-            moved = (t[0] + delta[0], t[1] + delta[1], t[2] + delta[2], t[3] + (delta[2] if t[3] > 0 else 0.0))
-            for s in self.supports:
-                if s.trunk == t:
-                    s.trunk = moved
+                if s.trunk is not None:           # a shared pillar moves with its contacts (only
+                    t = s.trunk                   # this object's: a clone's may be the same tuple)
+                    s.trunk = (t[0] + delta[0], t[1] + delta[1], t[2] + delta[2],
+                               t[3] + (delta[2] if t[3] > 0 else 0.0))
 
     def find(self, obj_id: int) -> MeshObject | None:
         return next((o for o in self.objects if o.id == obj_id), None)
@@ -190,6 +216,10 @@ class Scene:
         if not self.objects:
             return
         self.push_undo()
+        self._arrange(printer, spacing)
+        self.changed()
+
+    def _arrange(self, printer: PrinterProfile, spacing: float = 4.0) -> None:
         half_x, half_y = printer.print_x / 2, printer.print_y / 2
         items = sorted(self.objects, key=lambda o: -(o.size()[0] * o.size()[1]))
 
@@ -218,7 +248,6 @@ class Scene:
                 self.move_object(o, o.position + [shift[0], shift[1], 0.0])
                 x += w
             y -= h
-        self.changed()
 
     def fits(self, printer: PrinterProfile) -> dict[int, bool]:
         """Which objects are inside the build volume (by id)."""

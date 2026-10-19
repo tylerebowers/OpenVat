@@ -13,7 +13,9 @@ the last one belong to the view (it shows there and gets the clicks and
 the wheel).  When the cards are taller than the window the column scrolls
 (wheel over a card, or drag the slim pill on the outer edge; keyboard
 focus scrolls to the focused field).  Dragging a card's inner edge makes
-the column wider or narrower.
+the column wider or narrower.  A column can sort its cards into tabs
+(``set_pages``): the tabs sit in a card of their own at the top and stay
+there while the cards scroll under them.
 
 Nothing here is see-through except the 1-pixel anti-aliased rim of the
 corners, so how the window system composes widgets over OpenGL does not
@@ -321,6 +323,88 @@ class HintLine(QWidget):
             p.drawText(QPointF(x, base), text)
 
 
+class _TabBar(QWidget):
+    """Tabs in a card of their own, like a segmented button: the current
+    tab is filled with the highlight color.  The wheel goes on to the
+    column (it scrolls the cards, it does not flip tabs)."""
+    changed = Signal(int)
+
+    PAD = 4                   # px between the card's edge and the tabs
+
+    def __init__(self, titles: list[str], parent=None):
+        super().__init__(parent)
+        self.titles = list(titles)
+        self.current = 0
+        self._hover = -1
+        self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self._bold = QFont(self.font())
+        self._bold.setBold(True)
+
+    def sizeHint(self) -> QSize:
+        fm = QFontMetrics(self._bold)
+        w = sum(fm.horizontalAdvance(t) + 24 for t in self.titles) + 2 * self.PAD
+        return QSize(w, fm.height() + 12 + 2 * self.PAD)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def set_current(self, index: int) -> None:
+        if index != self.current:
+            self.current = index
+            self.update()
+
+    def _rects(self) -> list[QRectF]:
+        inner = QRectF(self.rect()).adjusted(self.PAD, self.PAD, -self.PAD, -self.PAD)
+        w = inner.width() / max(len(self.titles), 1)
+        return [QRectF(inner.left() + i * w, inner.top(), w, inner.height()) for i in range(len(self.titles))]
+
+    def _index_at(self, pos) -> int:
+        return next((i for i, r in enumerate(self._rects()) if r.contains(QPointF(pos))), -1)
+
+    def paintEvent(self, _e) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        card = QPainterPath()
+        card.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), CARD_RADIUS, CARD_RADIUS)
+        pal = self.palette()
+        p.fillPath(card, pal.window())
+        p.setPen(QPen(pal.mid().color(), 1))
+        p.drawPath(card)
+        for i, (r, title) in enumerate(zip(self._rects(), self.titles)):
+            if i == self.current or i == self._hover:
+                fill = QColor(pal.highlight().color())
+                fill.setAlphaF(0.28 if i == self.current else 0.10)
+                pill = QPainterPath()
+                pill.addRoundedRect(r.adjusted(1, 1, -1, -1), CARD_RADIUS - self.PAD, CARD_RADIUS - self.PAD)
+                p.fillPath(pill, fill)
+            p.setFont(self._bold if i == self.current else self.font())
+            color = pal.windowText().color()
+            if i != self.current:
+                color.setAlphaF(0.7)
+            p.setPen(color)
+            p.drawText(r, Qt.AlignCenter, title)
+
+    def mousePressEvent(self, e) -> None:
+        i = self._index_at(e.position().toPoint())
+        if e.button() == Qt.LeftButton and i >= 0 and i != self.current:
+            self.set_current(i)
+            self.changed.emit(i)
+
+    def mouseMoveEvent(self, e) -> None:
+        i = self._index_at(e.position().toPoint())
+        if i != self._hover:
+            self._hover = i
+            self.update()
+
+    def leaveEvent(self, _e) -> None:
+        self._hover = -1
+        self.update()
+
+    def wheelEvent(self, e) -> None:
+        e.ignore()
+
+
 class SectionColumn(QWidget):
     """A vertical stack of floating CollapsibleSection cards.
 
@@ -330,6 +414,7 @@ class SectionColumn(QWidget):
     layout_changed = Signal()
     resize_requested = Signal(int)
     resize_finished = Signal()
+    page_changed = Signal(int)                  # set_pages: another tab was picked
 
     def __init__(self, width: int, parent=None):
         super().__init__(parent)
@@ -344,6 +429,10 @@ class SectionColumn(QWidget):
         self._regions: dict[tuple[int, int], QRegion] = {}
         self._pill = _ScrollPill(self)
         self._pill.hide()
+        self._tabs: _TabBar | None = None       # set_pages: the tabs over the cards
+        self._pages: list[list[CollapsibleSection]] = []
+        self._page = -1
+        self._page_offsets: list[int] = []
         QApplication.instance().focusChanged.connect(self._focus_changed)
 
     # ------------------------------------------------------------ building
@@ -366,6 +455,34 @@ class SectionColumn(QWidget):
         sec.show()
         return sec
 
+    def set_pages(self, pages: list[tuple[str, list[str]]]) -> None:
+        """Sort the cards into tabs: (title, card keys) per tab.  Only the
+        current tab's cards show; the tabs stay at the top while they scroll."""
+        self._tabs = _TabBar([title for title, _keys in pages], self)
+        self._tabs.changed.connect(self.show_page)
+        self._tabs.show()
+        self._pages = [[self.sections[k] for k in keys] for _title, keys in pages]
+        self._page_offsets = [0] * len(pages)
+        self._page = -1
+        self.show_page(0)
+
+    def show_page(self, index: int) -> None:
+        if not self._pages or not 0 <= index < len(self._pages) or index == self._page:
+            return
+        if self._page >= 0:
+            self._page_offsets[self._page] = self.offset    # each tab keeps where it was scrolled to
+        self._page = index
+        for i, cards in enumerate(self._pages):
+            for card in cards:
+                card.setVisible(i == index)
+        self.offset = self._page_offsets[index]
+        self._tabs.set_current(index)
+        self.relayout()
+        self.page_changed.emit(index)
+
+    def current_page(self) -> int:
+        return self._page
+
     def finish(self) -> None:
         self.relayout()
 
@@ -380,10 +497,17 @@ class SectionColumn(QWidget):
     def natural_height(self) -> int:
         cards = self._shown()
         cw = self.card_width()
-        return sum(c.height_for(cw) for c in cards) + CARD_GAP * max(len(cards) - 1, 0)
+        return self._top() + sum(c.height_for(cw) for c in cards) + CARD_GAP * max(len(cards) - 1, 0)
 
     def minimum_width(self) -> int:
-        return max([c.minimumSizeHint().width() for c in self._cards] + [0]) + GUTTER
+        widths = [c.minimumSizeHint().width() for c in self._cards]
+        if self._tabs is not None:
+            widths.append(self._tabs.minimumSizeHint().width())
+        return max(widths + [0]) + GUTTER
+
+    def _top(self) -> int:
+        """Where the cards start: below the tabs, if any."""
+        return self._tabs.sizeHint().height() + CARD_GAP if self._tabs is not None else 0
 
     def _shown(self) -> list[CollapsibleSection]:
         return [c for c in self._cards if not c.isHidden()]
@@ -398,26 +522,35 @@ class SectionColumn(QWidget):
         x0 = GUTTER if self.inner_on_right else 0           # the pill gutter is on the outer side
         heights = [c.height_for(cw) for c in cards]
         self._content = sum(heights) + CARD_GAP * max(len(cards) - 1, 0)
-        self.offset = max(0, min(self.offset, self._content - h))
+        top = self._top()
+        view = h - top                                      # the cards' part of the column
+        self.offset = max(0, min(self.offset, self._content - view))
         region = QRegion()
-        y = -self.offset
+        if self._tabs is not None:                          # fixed: the cards scroll under it
+            th = top - CARD_GAP
+            self._tabs.setGeometry(x0, 0, cw, th)
+            self._tabs.raise_()
+            region += _rounded_region(QRect(0, 0, cw, th), CARD_RADIUS).translated(x0, 0)
+        cards_region = QRegion()
+        y = top - self.offset
         for card, ch in zip(cards, heights):
             card.setGeometry(x0, y, cw, ch)
             handle = self._handles[card]
             handle.setGeometry(cw - EDGE_WIDTH if self.inner_on_right else 0, 0, EDGE_WIDTH, ch)
             handle.raise_()
-            if y + ch > 0 and y < h:
+            if y + ch > top and y < h:
                 key = (cw, ch)
                 if key not in self._regions:
                     if len(self._regions) > 64:
                         self._regions.clear()
                     self._regions[key] = _rounded_region(QRect(0, 0, cw, ch), CARD_RADIUS)
-                region += self._regions[key].translated(x0, y)
+                cards_region += self._regions[key].translated(x0, y)
             y += ch + CARD_GAP
+        region += cards_region & QRegion(0, top, w, max(view, 0))
         region &= QRegion(self.rect())
-        if self._content > h > 0:                            # scrolling: show the pill
-            th = max(24, h * h // self._content)
-            ty = round((h - th) * self.offset / (self._content - h))
+        if self._content > view > 0:                         # scrolling: show the pill
+            th = max(24, view * view // self._content)
+            ty = top + round((view - th) * self.offset / (self._content - view))
             px = (GUTTER - PILL_WIDTH) // 2 if self.inner_on_right else w - GUTTER + (GUTTER - PILL_WIDTH) // 2
             self._pill.setGeometry(px, ty, PILL_WIDTH, th)
             self._pill.show()
@@ -437,22 +570,26 @@ class SectionColumn(QWidget):
         return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------ scrolling
+    def _view(self) -> int:
+        """Height of the part the cards scroll in."""
+        return self.height() - self._top()
+
     def scroll_to(self, offset: int) -> None:
-        offset = max(0, min(int(offset), self._content - self.height()))
+        offset = max(0, min(int(offset), self._content - self._view()))
         if offset != self.offset:
             self.offset = offset
             self._layout()
 
     def scroll_by_pill(self, start_offset: int, dy: float) -> None:
-        h = self.height()
-        track = h - self._pill.height()
+        view = self._view()
+        track = view - self._pill.height()
         if track > 0:
-            self.scroll_to(start_offset + dy * (self._content - h) / track)
+            self.scroll_to(start_offset + dy * (self._content - view) / track)
 
     def wheelEvent(self, e) -> None:
         """Wheel over a card that did not use it (a spin box does): scroll
         the column if it does not fit."""
-        if self._content <= self.height():
+        if self._content <= self._view():
             e.ignore()
             return
         pixels = e.pixelDelta().y()
@@ -462,12 +599,14 @@ class SectionColumn(QWidget):
 
     def _focus_changed(self, _old, new) -> None:
         """Keyboard focus moved into this column: scroll it into view."""
-        if new is None or not self.isAncestorOf(new) or self._content <= self.height():
+        if new is None or not self.isAncestorOf(new) or self._content <= self._view():
+            return
+        if self._tabs is not None and (new is self._tabs or self._tabs.isAncestorOf(new)):
             return
         top = new.mapTo(self, QPoint(0, 0)).y()
         bottom = top + new.height()
-        if top < 0:
-            self.scroll_to(self.offset + top - CARD_GAP)
+        if top < self._top():
+            self.scroll_to(self.offset + top - self._top() - CARD_GAP)
         elif bottom > self.height():
             self.scroll_to(self.offset + bottom - self.height() + CARD_GAP)
 

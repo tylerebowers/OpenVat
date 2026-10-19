@@ -109,6 +109,8 @@ class MainWindow(QMainWindow):
         self.side = SidePanel(self.store, self.scene)
         self.side.printer_changed.connect(self._printer_changed)
         self.tools.layer_height = self._layer_height        # Automatic looks for islands at this
+        self.tools.printer = self.side.current_printer      # Clone… arranges the plate of this one
+        self.tools.page_changed.connect(self._save_tools_tab)
 
         # the navigation cube floats over the view, left of the right panel
         self.view_cube = ViewCube(self.viewport.camera, self.viewport)
@@ -164,6 +166,7 @@ class MainWindow(QMainWindow):
         self._action(edit_menu, "&Redo", self.redo, "Ctrl+Shift+Z")
         edit_menu.addSeparator()
         self._action(edit_menu, "Clone", self.tools.clone_selected, "Ctrl+D")
+        self._action(edit_menu, "Clone several…", self.tools.clone_many_selected, "Ctrl+Shift+D")
         self._action(edit_menu, "Delete", self.tools.delete_key, QKeySequence.Delete)
         self._action(edit_menu, "Repair mesh", self.tools.repair_selected)
         self._action(edit_menu, "Auto-arrange", self.arrange, "Ctrl+A")
@@ -178,6 +181,11 @@ class MainWindow(QMainWindow):
                                  ("Top", "top", "5"), ("Bottom", "bottom", "6")):
             self._action(view_menu, label, lambda _=False, n=name: self.viewport.set_view(n), key)
         view_menu.addSeparator()
+        self.plate_action = self._toggle(view_menu, "Build plate", "plate", True,
+                                         lambda on: self._set_view_option(plate=on))
+        self.see_through_action = self._toggle(view_menu, "Semi-transparent models", "see_through", False,
+                                               lambda on: self._set_view_option(see_through=on))
+        view_menu.addSeparator()
         self._action(view_menu, "Fit to scene", self.viewport.fit_view, "F")
         self._action(view_menu, "3D view", lambda: self.pages.setCurrentIndex(0), "Ctrl+1")
         self._action(view_menu, "Layer view", self._show_layers, "Ctrl+2")
@@ -185,6 +193,36 @@ class MainWindow(QMainWindow):
 
         help_menu = bar.addMenu("&Help")
         self._action(help_menu, "About", self.about)
+
+    def _toggle(self, menu, text: str, key: str, default: bool, slot) -> QAction:
+        """A checkable View menu entry, remembered in settings.json ("view")."""
+        act = QAction(text, self)
+        act.setCheckable(True)
+        saved = self.store.settings.get("view")
+        on = bool(saved.get(key, default)) if isinstance(saved, dict) else default
+        act.setChecked(on)
+        act.toggled.connect(slot)
+        menu.addAction(act)
+        slot(on)
+        return act
+
+    def _set_view_option(self, plate: bool | None = None, see_through: bool | None = None) -> None:
+        """View menu: the build plate (in both 3D views), see-through models."""
+        if plate is not None:
+            for view in (self.viewport, self.voxel_page.viewport):
+                view.set_view_options(plate=plate)
+            self._remember_view("plate", plate)
+        if see_through is not None:
+            self.viewport.set_view_options(see_through=see_through)
+            self._remember_view("see_through", see_through)
+
+    def _remember_view(self, key: str, on: bool) -> None:
+        saved = self.store.settings.get("view")
+        saved = dict(saved) if isinstance(saved, dict) else {}
+        if saved.get(key) != on:
+            saved[key] = on
+            self.store.settings["view"] = saved
+            self.store.save_settings()
 
     def _action(self, menu, text, slot, shortcut=None) -> QAction:
         act = QAction(text, self)
@@ -277,6 +315,14 @@ class MainWindow(QMainWindow):
         if isinstance(saved, dict):
             self.tools.move_eye.setChecked(bool(saved.get("move")))
             self.tools.rotate_eye.setChecked(bool(saved.get("rotate")))
+        tab = self.store.settings.get("tools_tab")
+        if isinstance(tab, int):
+            self.tools.show_page(tab)
+
+    def _save_tools_tab(self, index: int) -> None:
+        if self.store.settings.get("tools_tab") != index:
+            self.store.settings["tools_tab"] = index
+            self.store.save_settings()
 
     def _set_lay_face_mode(self, on: bool) -> None:
         """Clicks on the selected model's highlighted faces lay it down (no
