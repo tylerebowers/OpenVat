@@ -777,14 +777,15 @@ class Viewport3D(QOpenGLWidget):
 
     def _support_mesh_for(self, sup: Support) -> GLBuffer:
         """Buffer for one support (used to highlight the selected one)."""
-        settings = self.scene.support_settings
-        key = (tuple(np.round(sup.tip, 4)), tuple(np.round(sup.lean, 6)), sup.kind, sup.foot, sup.width,
-               sup.angle, sup.stretch, sup.route, sup.trunk, tuple(sorted(settings.to_dict().items())))
+        mesh = self.scene.support_mesh(sup)                    # the same object while unchanged
         entry = self._support_meshes.get(sup.id)
-        if entry is None or entry[0] != key:
+        if entry is None or entry[0] is not mesh:
             if entry:
                 entry[1].release()
-            self._support_meshes[sup.id] = (key, GLBuffer.from_trimesh(sup.to_mesh(settings)))
+            if len(self._support_meshes) > 16:                  # only the selected one is ever drawn
+                for key in [k for k in self._support_meshes if k != sup.id]:
+                    self._support_meshes.pop(key)[1].release()
+            self._support_meshes[sup.id] = (mesh, GLBuffer.from_trimesh(mesh))
         return self._support_meshes[sup.id][1]
 
     def _support_buffer(self) -> GLBuffer | None:
@@ -837,23 +838,26 @@ class Viewport3D(QOpenGLWidget):
     # ------------------------------------------------------------ picking
     def _pick(self, pos: QPoint):
         """Return (item, world point) under the cursor, item being a
-        MeshObject, a Support or None."""
+        MeshObject, a Support or None.  Only what the ray's bounding-box test
+        lets through is tested triangle by triangle: the supports' meshes as
+        the scene keeps them, the models in their own coordinates (no
+        transformed copy)."""
         origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
         best, best_t, best_pt = None, np.inf, None
-        settings = self.scene.support_settings
         for sup in self.scene.supports:
-            m = sup.to_mesh(settings)
-            if len(m.faces) == 0:
+            m = self.scene.support_mesh(sup)
+            if len(m.faces) == 0 or not _ray_meets_box(origin, direction, m.bounds, best_t):
                 continue
             hit = _ray_hit(m, origin, direction)
             if hit is not None and hit[0] < best_t:
                 best, best_t, best_pt = sup, hit[0], hit[1]
         for obj in self.scene.objects:
-            if not obj.visible:
+            if not obj.visible or not _ray_meets_box(origin, direction, obj.world_bounds(), best_t):
                 continue
-            hit = _ray_hit(obj.transformed(), origin, direction)
-            if hit is not None and hit[0] < best_t:
-                best, best_t, best_pt = obj, hit[0], hit[1]
+            inv = np.linalg.inv(obj.matrix())            # the ray in the model's own coordinates:
+            hit = _ray_hit(obj.mesh, inv[:3, :3] @ origin + inv[:3, 3], inv[:3, :3] @ direction)
+            if hit is not None and hit[0] < best_t:       # same t along it (an affine map keeps t)
+                best, best_t, best_pt = obj, hit[0], origin + direction * hit[0]
         return best, best_pt
 
     # ------------------------------------------------------------ mouse
@@ -971,3 +975,20 @@ class Viewport3D(QOpenGLWidget):
 def _ray_hit(mesh: trimesh.Trimesh, origin: np.ndarray, direction: np.ndarray):
     """Closest intersection of a ray with a mesh -> (distance, point) or None."""
     return ray_mesh_closest(mesh, origin, direction)
+
+
+def _ray_meets_box(origin, direction, bounds, max_t: float = np.inf) -> bool:
+    """Whether the ray passes through the box [[x0,y0,z0],[x1,y1,z1]] before max_t."""
+    lo, hi = np.asarray(bounds, float)
+    t0, t1 = 0.0, float(max_t)
+    for a in range(3):
+        d = float(direction[a])
+        if abs(d) < 1e-15:
+            if origin[a] < lo[a] or origin[a] > hi[a]:
+                return False
+            continue
+        ta, tb = (lo[a] - origin[a]) / d, (hi[a] - origin[a]) / d
+        t0, t1 = max(t0, min(ta, tb)), min(t1, max(ta, tb))
+        if t0 > t1:
+            return False
+    return True

@@ -146,6 +146,22 @@ def loops_to_multipolygon(loops: list[np.ndarray]) -> MultiPolygon:
     return MultiPolygon([g for g in merged.geoms if isinstance(g, Polygon)])
 
 
+def _simple_polygons(loops: list[np.ndarray]) -> list:
+    """Polygons of single closed loops, made in one go; an invalid one
+    (self-touching) is repaired as ``loops_to_multipolygon`` would."""
+    if not loops:
+        return []
+    sizes = np.array([len(p) for p in loops])
+    coords = np.concatenate(loops)
+    rings = shapely.linearrings(coords, indices=np.repeat(np.arange(len(loops)), sizes))
+    polys = shapely.polygons(rings)
+    ok = shapely.is_valid(polys) & (shapely.area(polys) >= 1e-9)
+    out = list(polys[ok])
+    for i in np.flatnonzero(~ok):
+        out.extend(loops_to_multipolygon([loops[i]]).geoms)
+    return out
+
+
 def segments_to_multipolygon(segments: np.ndarray, labels: np.ndarray | None = None) -> MultiPolygon:
     """Polygons from cross-section segments.  ``labels`` (the closed shell
     each segment comes from) nests every shell on its own and unites them."""
@@ -156,11 +172,16 @@ def segments_to_multipolygon(segments: np.ndarray, labels: np.ndarray | None = N
     if not loops:
         return MultiPolygon()
     loop_labels = np.asarray(loop_labels)
-    shells = [loops_to_multipolygon([loops[i] for i in np.flatnonzero(loop_labels == lab)])
-              for lab in np.unique(loop_labels)]
+    shell_ids, first, counts = np.unique(loop_labels, return_index=True, return_counts=True)
+    # most shells (a rod, a bulb, a cone) cross a layer in one loop: those are
+    # their own outline, made all at once; the rest are nested shell by shell
+    single = [loops[i] for i in first[counts == 1]]
+    shells = _simple_polygons(single)
+    shells += [loops_to_multipolygon([loops[i] for i in np.flatnonzero(loop_labels == lab)])
+               for lab in shell_ids[counts > 1]]
     shells = [g for g in shells if not g.is_empty]
     if len(shells) == 1:
-        return shells[0]
+        return shells[0] if isinstance(shells[0], MultiPolygon) else MultiPolygon([shells[0]])
     try:
         merged = unary_union(shells)
     except Exception:

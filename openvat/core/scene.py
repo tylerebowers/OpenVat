@@ -35,7 +35,12 @@ class Scene:
         self.undo_stack = UndoStack(self)
         self.support_settings = SupportSettings()
         self.hollow_settings = HollowSettings()   # the Hollowing settings window
-        self._extras_cache: tuple | None = None
+        self._extras_cache: tuple | None = None   # (what it was built from, meshes)
+        self._extras_dirty = True         # changed() since: check whether that still matches
+        self._parts_settings = None       # the settings the part caches below were made with
+        self._part_cache: dict[int, tuple] = {}     # support id -> (geometry key, mesh)
+        self._trunk_cache: dict = {}                # trunk -> mesh
+        self._brace_cache: dict = {}                # see generate_braces
         self.extras_version = 0           # bumps whenever support_meshes() is rebuilt
         self.support_report: dict = {}    # what the last Automatic run made (and skipped)
 
@@ -45,7 +50,7 @@ class Scene:
 
     # ------------------------------------------------------------- notify
     def changed(self) -> None:
-        self._extras_cache = None
+        self._extras_dirty = True         # support_meshes() checks what changed (a new selection: nothing)
         for cb in self.listeners:
             cb()
 
@@ -183,20 +188,57 @@ class Scene:
         self.changed()
 
     def support_meshes(self) -> list:
-        """World-space meshes of all supports, shared trunks, braces and raft (cached
-        until the scene changes).  Used by the viewport, the slicer and the
-        exporter so they always agree."""
-        if self._extras_cache is None:
-            s = self.support_settings
-            meshes = [sup.to_mesh(s) for sup in self.supports]
-            meshes += [trunk_mesh(t, s) for t in dict.fromkeys(sup.trunk for sup in self.supports if sup.trunk)]
-            owners = {sup.owner_id for sup in self.supports}
-            fields = {o.id: clearance_field(o, field_cap(s)) for o in self.objects if o.id in owners}
-            meshes.append(generate_braces(self.supports, s, fields))     # braces keep off the model
-            meshes.append(raft_mesh(self.supports, s, self._plate_footprint(owners)))
-            self._extras_cache = tuple(m for m in meshes if len(m.faces))
-            self.extras_version += 1
-        return list(self._extras_cache)
+        """World-space meshes of all supports, shared trunks, braces and raft.
+        Used by the viewport, the slicer and the exporter so they always
+        agree.  Rebuilt only when the supports, their settings or the models
+        they stand on changed (not for a new selection), and then only the
+        parts that changed: each support's own mesh and each pair of braced
+        columns are kept from the last time."""
+        if self._extras_cache is None or self._extras_dirty:
+            key = self._extras_key()
+            if self._extras_cache is None or self._extras_cache[0] != key:
+                s = self.support_settings
+                meshes = [self.support_mesh(sup) for sup in self.supports]
+                trunks = dict.fromkeys(sup.trunk for sup in self.supports if sup.trunk)
+                self._trunk_cache = {t: self._trunk_cache.get(t) or trunk_mesh(t, s) for t in trunks}
+                meshes += self._trunk_cache.values()
+                owners = {sup.owner_id for sup in self.supports}
+                models = [o for o in self.objects if o.id in owners]
+                fields = {o.id: clearance_field(o, field_cap(s)) for o in models}
+                poses = {o.id: (id(o.mesh), o.matrix().tobytes()) for o in models}
+                meshes.append(generate_braces(self.supports, s, fields,     # braces keep off the model
+                                              cache=self._brace_cache, poses=poses))
+                meshes.append(raft_mesh(self.supports, s, self._plate_footprint(owners)))
+                ids = {sup.id for sup in self.supports}
+                self._part_cache = {k: v for k, v in self._part_cache.items() if k in ids}
+                self._extras_cache = (key, tuple(m for m in meshes if len(m.faces)))
+                self.extras_version += 1
+            self._extras_dirty = False
+        return list(self._extras_cache[1])
+
+    def support_mesh(self, sup: Support):
+        """One support's own mesh (kept while it and the settings stay the same)."""
+        self._sync_part_settings()
+        key = sup.geometry_key()
+        entry = self._part_cache.get(sup.id)
+        if entry is None or entry[0] != key:
+            entry = self._part_cache[sup.id] = (key, sup.to_mesh(self.support_settings))
+        return entry[1]
+
+    def _sync_part_settings(self) -> None:
+        s = tuple(sorted(self.support_settings.to_dict().items()))
+        if s != self._parts_settings:
+            self._parts_settings = s
+            self._part_cache, self._trunk_cache, self._brace_cache = {}, {}, {}
+
+    def _extras_key(self) -> tuple:
+        """What the support meshes are made from: the settings, every
+        support's shape and the models they stand on (where they are)."""
+        self._sync_part_settings()
+        owners = {sup.owner_id for sup in self.supports}
+        return (self._parts_settings,
+                tuple((sup.id, sup.owner_id, sup.geometry_key()) for sup in self.supports),
+                tuple((o.id, o.mesh, o.matrix().tobytes()) for o in self.objects if o.id in owners))
 
     def _plate_footprint(self, ids: set):
         """Where the given objects touch the plate (the raft keeps off it)."""

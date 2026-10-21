@@ -28,6 +28,8 @@ print would not hold.
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -150,7 +152,9 @@ def find_islands(layers: list[Layer]) -> list[Island]:
             if isl not in still_open:
                 still_open.append(isl)
         open_islands = still_open
-        held = unary_union(keep) if keep else Polygon()
+        # a layer's polygons never overlap (it is one valid MultiPolygon), so
+        # what is held is just those polygons together - no union needed
+        held = MultiPolygon(keep) if keep else Polygon()
     return islands
 
 
@@ -411,6 +415,27 @@ def _as_multi(geom) -> MultiPolygon:
 # --------------------------------------------------------------------------
 # the slicer
 
+SLICE_THREADS = max(1, min(os.cpu_count() or 1, 8))
+
+
+def in_threads(work, n: int):
+    """work(0), ..., work(n - 1), yielded in order.  The first runs alone
+    (trimesh fills its caches then), the rest on SLICE_THREADS threads -
+    for work that spends its time in GEOS, numpy or Pillow, which let
+    other threads run meanwhile."""
+    if n == 0:
+        return
+    yield work(0)
+    if n == 1 or SLICE_THREADS == 1:
+        yield from (work(i) for i in range(1, n))
+        return
+    pool = ThreadPoolExecutor(max_workers=SLICE_THREADS)
+    try:
+        yield from pool.map(work, range(1, n))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
                 progress: ProgressFn | None = None) -> SliceResult:
     models, support, jobs = _world_meshes(scene)
@@ -431,23 +456,33 @@ def slice_scene(scene: Scene, printer: PrinterProfile, resin: ResinProfile,
     boxes = np.array([[lo[0], lo[1], hi[0], hi[1]] for (lo, hi), _c in owners])
     centers = np.array([c for _b, c in owners])
 
-    # 1. cut every layer: the plain geometry united, hollowed models kept apart
+    # 1. cut every layer: the plain geometry united, hollowed models kept apart.
+    # Layers are independent, so several are cut at once: most of the time
+    # goes to GEOS (outlines, unions), which runs outside Python's lock.
     plain: list[MultiPolygon] = []
     solids: list[list] = [[] for _ in jobs]
     slicers = [(MeshSlicer(m), m.bounds, c) for m, c in models]
     job_slicers = [MeshSlicer(job.mesh) for job in jobs]
     support_slicer = (MeshSlicer(*support), support[0].bounds) if support else None
-    for p, z in zip(schedule, zc):
-        sx, sy, _sz = p["scale"]
+
+    def cut(i: int):
+        z = float(zc[i])
+        sx, sy, _sz = schedule[i]["scale"]
         parts = [_scaled(sl.at(z), sx, sy, c) for sl, b, c in slicers if b[0][2] <= z <= b[1][2]]
         if support_slicer is not None and support_slicer[1][0][2] <= z <= support_slicer[1][1][2]:
             parts += _scaled_supports(support_slicer[0].at(z), sx, sy, boxes, centers)
-        plain.append(_union([g for g in parts if not g.is_empty]))
-        for job, sl, out in zip(jobs, job_slicers, solids):
+        outs = []
+        for job, sl in zip(jobs, job_slicers):
             lo, hi = job.mesh.bounds
-            out.append(sl.at(z) if lo[2] <= z <= hi[2] else None)
+            outs.append(sl.at(z) if lo[2] <= z <= hi[2] else None)
+        return _union([g for g in parts if not g.is_empty]), outs
+
+    for i, (geom, outs) in enumerate(in_threads(cut, n)):
+        plain.append(geom)
+        for out, g in zip(solids, outs):
+            out.append(g)
         if progress:
-            progress(p["index"] + 1, total)
+            progress(i + 1, total)
 
     # 2. hollow those models (each layer needs its neighbours) and add them
     extra: list[list] = [[] for _ in range(n)]

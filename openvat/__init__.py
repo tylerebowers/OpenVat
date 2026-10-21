@@ -7,7 +7,7 @@ Package layout:
     cli.py    headless command-line slicer
 """
 
-__version__ = "0.1.8"
+__version__ = "0.2.0"
 APP_NAME = "OpenVat"
 AUTHORS = [
     "Tyler Bowers",

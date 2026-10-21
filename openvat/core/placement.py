@@ -107,8 +107,21 @@ class ModelSpace:
         return self._reach
 
 
+_SPACES: list[tuple[tuple, ModelSpace]] = []        # the last one used (~80 MB for a 225k-face model)
+
+
 def model_space(obj, s: SupportSettings) -> ModelSpace:
-    return ModelSpace(obj, s)
+    """The model's ModelSpace, kept while the model stays where it is and the
+    settings stay the same: building one (rays, grids) takes a while, and
+    dragging a support asks for it at every mouse move."""
+    key = (obj.mesh, obj.matrix().tobytes(), tuple(sorted(s.to_dict().items())))
+    for k, space in _SPACES:
+        if k[0] is key[0] and k[1:] == key[1:]:
+            return space
+    _SPACES.clear()                                  # free the old one before building the next
+    space = ModelSpace(obj, s)
+    _SPACES.append((key, space))
+    return space
 
 
 class PlateReach:
@@ -201,7 +214,7 @@ def generate_supports(obj, settings: SupportSettings, report: dict | None = None
     ``report``, if given, receives how many are straight, routed, split and
     nook, how many spots were skipped (no room for any support) and how
     many need none after all (narrow ceilings bridged by walls on both sides)."""
-    space = ModelSpace(obj, settings)
+    space = model_space(obj, settings)
     # phase 1: where supports are needed, and of which kind
     planned, failed, anchors, unheld = [], [], set(), []
     bridged = 0
@@ -265,7 +278,7 @@ def place_support(sup: Support, space: ModelSpace, s: SupportSettings) -> bool:
 def manual_support(obj, point: np.ndarray, settings: SupportSettings) -> Support | None:
     """A support at a clicked point, its arm following the surface there
     (None when there is no room for one)."""
-    space = ModelSpace(obj, settings)
+    space = model_space(obj, settings)
     tri = space.mesh.triangles
     closest = trimesh.triangles.closest_point(tri, np.repeat([point], len(tri), axis=0))
     f = int(np.argmin(np.linalg.norm(closest - point, axis=1)))
@@ -277,7 +290,7 @@ def snap_support(sup: Support, obj, settings: SupportSettings) -> bool:
     """Re-seat a dragged support: its contact goes to the open downward face
     at its XY nearest its old height (following the face there), and it is
     placed again.  False when there is no room for a support there."""
-    space = ModelSpace(obj, settings)
+    space = model_space(obj, settings)
     faces = _downward_faces(space, sup.tip[0], sup.tip[1], settings)
     if not faces:
         return False

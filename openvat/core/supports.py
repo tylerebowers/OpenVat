@@ -145,6 +145,12 @@ class Support:                          # numpy arrays, so list.remove() raised 
         for k, v in state.items():
             setattr(self, k, _copy(v))
 
+    def geometry_key(self) -> tuple:
+        """Everything its mesh depends on (besides the settings): equal keys,
+        equal meshes."""
+        return (self.tip.tobytes(), self.lean.tobytes(), self.kind, self.angle, self.trunk,
+                self.normal.tobytes(), self.stretch, self.route, self.foot, self.width)
+
     def copy_for(self, owner_id: int | None) -> "Support":
         """The same support for another object (a clone sitting where this
         one's object is) - with its own id."""
@@ -409,11 +415,17 @@ def _brace_pairs(xy: np.ndarray, max_dist: float, neighbors: int = 2) -> set[tup
 
 
 def generate_braces(supports: list[Support], settings: SupportSettings,
-                    fields: dict[int, ClearanceField] | None = None) -> trimesh.Trimesh:
+                    fields: dict[int, ClearanceField] | None = None,
+                    cache: dict | None = None, poses: dict | None = None) -> trimesh.Trimesh:
     """X braces between neighboring columns: two diagonals crossing between
     each pair, stacked in panels whose diagonals rise at ``brace_angle``.
     With ``fields`` (owner id -> clearance field) a panel whose diagonals
-    would pass through the model is left out."""
+    would pass through the model is left out.
+
+    ``cache`` (a dict kept by the caller for one set of settings; ``poses``:
+    owner id -> anything that changes when that model moves) keeps each
+    pair's diagonals, so after one support changes only the pairs around it
+    are worked out again.  It is left holding just the pairs used now."""
     cols = columns(supports, settings)
     if not settings.braces or len(cols) < 2:
         return trimesh.Trimesh()
@@ -424,11 +436,22 @@ def generate_braces(supports: list[Support], settings: SupportSettings,
     r = settings.brace_diameter / 2
     rise = math.tan(math.radians(min(max(settings.brace_angle, 10.0), 80.0)))
     parts = []
+    used = {}
     for i, j in _brace_pairs(xy, settings.brace_max_distance):
+        if cache is not None:
+            key = tuple((float(xy[k][0]), float(xy[k][1]), float(bottoms[k]), float(tops[k]), owners[k],
+                         (poses or {}).get(owners[k])) for k in (i, j))
+            if key in cache:
+                used[key] = cache[key]
+                parts += cache[key]
+                continue
+            mark = len(parts)
         dist = float(np.linalg.norm(xy[i] - xy[j]))
         z0 = max(bottoms[i], bottoms[j]) + 0.5
         z1 = min(tops[i], tops[j]) - 0.5
         if dist < 1e-6 or z1 - z0 < dist * rise * 0.5:      # too short for a sensible X
+            if cache is not None:
+                used[key] = []
             continue
         checks = [fields[o] for o in {owners[i], owners[j]} if fields and o in fields]
         panels = max(1, round((z1 - z0) / (dist * rise)))
@@ -439,6 +462,11 @@ def generate_braces(supports: list[Support], settings: SupportSettings,
             if any(not f.segment_clear(a, b, r + settings.model_clearance) for f in checks for a, b in diagonals):
                 continue
             parts += [_tube(a, b, r, r, sections=10) for a, b in diagonals]
+        if cache is not None:
+            used[key] = parts[mark:]
+    if cache is not None:
+        cache.clear()
+        cache.update(used)
     return trimesh.util.concatenate(parts) if parts else trimesh.Trimesh()
 
 

@@ -1646,3 +1646,148 @@ print(shown(), col.offset == scrolled)
     assert lines[0] == "abc True True 0 True True"      # cards under the tabs are clipped, the tabs stay at 0
     assert lines[1] == "d 0 1"
     assert lines[2] == "abc True"                      # each tab keeps its scroll position
+
+
+def test_support_meshes_rebuild_only_what_changed():
+    """A new selection rebuilds nothing; removing or moving one support
+    rebuilds just that, and the result is what a fresh build gives."""
+    scene = Scene()
+    slab = MeshObject("slab", trimesh.creation.box(extents=[30, 20, 3]))
+    slab.drop_to_plate()
+    slab.position[2] += 20
+    scene.add(slab)
+    scene.auto_supports(slab)
+    def build(sc):
+        m = trimesh.util.concatenate(sc.support_meshes())
+        return np.round(m.vertices, 9), m.faces
+    def fresh(sc):
+        other = Scene()
+        other.objects = sc.objects
+        other.support_settings = sc.support_settings
+        other.supports = [s.copy_for(s.owner_id) for s in sc.supports]
+        return build(other)
+    build(scene)
+    version = scene.extras_version
+    scene.selected_support = scene.supports[3]
+    scene.changed()
+    build(scene)
+    assert scene.extras_version == version                       # selecting is free
+    kept = {s.id: scene.support_mesh(s) for s in scene.supports}
+    scene.remove_support(scene.supports[2])
+    v, f = build(scene)
+    assert scene.extras_version == version + 1
+    assert all(scene.support_mesh(s) is kept[s.id] for s in scene.supports)   # the rest reused
+    fv, ff = fresh(scene)
+    assert np.array_equal(v, fv) and np.array_equal(f, ff)
+    scene.move_object(slab, slab.position + [4.0, 0.0, 0.0])
+    scene.changed()
+    v, f = build(scene)
+    fv, ff = fresh(scene)
+    assert np.array_equal(v, fv) and np.array_equal(f, ff)
+    scene.support_settings.pillar_diameter = 2.0                 # new settings: everything again
+    scene.changed()
+    v, f = build(scene)
+    fv, ff = fresh(scene)
+    assert np.array_equal(v, fv) and np.array_equal(f, ff)
+
+
+def test_slicing_in_threads_gives_the_same_layers():
+    import openvat.core.slicer as slicer
+    scene = Scene()
+    slab = MeshObject("slab", trimesh.creation.box(extents=[24, 16, 3]))
+    slab.drop_to_plate()
+    slab.position[2] += 6
+    scene.add(slab)
+    scene.auto_supports(slab)
+    resin = ResinProfile()
+    resin.normal.thickness = resin.bottom.thickness = 0.1
+    saved = slicer.SLICE_THREADS
+    try:
+        slicer.SLICE_THREADS = 1
+        one = slice_scene(scene, PrinterProfile(), resin)
+        slicer.SLICE_THREADS = 4
+        many = slice_scene(scene, PrinterProfile(), resin)
+    finally:
+        slicer.SLICE_THREADS = saved
+    assert len(one.layers) == len(many.layers) > 50
+    assert all(a.geometry.equals_exact(b.geometry, 0) for a, b in zip(one.layers, many.layers))
+    assert [(i.first, i.last) for i in one.islands] == [(i.first, i.last) for i in many.islands]
+
+
+def test_voxel_raster_per_polygon_matches_one_big_image():
+    """Each polygon drawn in its own small window gives the same voxels as
+    the whole layer drawn on one image (a ring with an island in its hole)."""
+    from PIL import Image, ImageDraw
+    from shapely.geometry import MultiPolygon, Point
+    from openvat.core import voxels
+    from openvat.core.slicer import Layer
+    ring = Point(3.1, 2.2).buffer(2.0, quad_segs=24).difference(Point(3.1, 2.2).buffer(1.2, quad_segs=24))
+    island = Point(3.1, 2.2).buffer(0.55, quad_segs=24)
+    far = Point(9.3, 4.4).buffer(0.8, quad_segs=24)
+    geom = MultiPolygon([ring, island, far])
+    layer = Layer(0, 0.0, 0.05, 1, 1, 0, 0, 1, 1, 1, geom)
+    vx, vy, origin, nx, ny = 0.05, 0.035, np.array([0.0, 0.0]), 220, 180
+    got = voxels._raster(layer, origin, vx, vy, nx, ny)
+    s = voxels.SUPERSAMPLE                                   # the reference: one image of the whole grid
+    img = Image.new("1", (nx * s, ny * s), 0)
+    draw = ImageDraw.Draw(img)
+    shrunk = geom.buffer(-min(vx, vy) / s / 2, join_style="mitre")
+    for poly in sorted(shrunk.geoms, key=lambda p: -p.area):
+        draw.polygon(voxels._to_px(poly.exterior.coords, origin, vx / s, vy / s), fill=1)
+        for hole in poly.interiors:
+            draw.polygon(voxels._to_px(hole.coords, origin, vx / s, vy / s), fill=0)
+    want = np.asarray(img, dtype=np.uint8).reshape(ny, s, nx, s).sum(axis=(1, 3)) >= voxels.MIN_COVERAGE
+    assert got.sum() > 1000 and np.array_equal(got, want)
+
+
+def test_picking_supports_and_turned_models():
+    """Picking works on the scene's kept support meshes and on models in
+    their own coordinates: the same hits as on a transformed copy."""
+    code = '''
+import numpy as np, trimesh
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from openvat.core.scene import Scene
+from openvat.core.mesh import MeshObject
+from openvat.core.raycast import ray_mesh_closest
+from openvat.ui.viewport3d import Viewport3D
+from openvat.ui import gizmos
+scene = Scene()
+obj = MeshObject("slab", trimesh.creation.box(extents=[30, 20, 3]))
+obj.rotation[:] = [0, 0, 30]; obj.scale[:] = [1.5, 0.8, 1.0]
+obj.drop_to_plate(); obj.position[2] += 15
+scene.add(obj); scene.auto_supports(obj)
+v = Viewport3D(scene); v.resize(800, 600)
+v.camera.aspect = 800 / 600
+v.camera.set_view("iso"); v.camera.fit(scene.bounds(), (100, 100))
+vp = v._view_projection()
+def px(p):
+    xy, _ = gizmos.project(vp, [p], 800, 600)
+    return QPoint(int(round(xy[0][0])), int(round(xy[0][1])))
+built = [(s, s.to_mesh(scene.support_settings)) for s in scene.supports]
+world = obj.transformed()
+def reference(pos):                                  # the old way: every mesh tested in world space
+    o, d = v.camera.ray(pos.x(), pos.y(), 800, 600)
+    best, best_t = None, np.inf
+    for s, m in built:
+        h = ray_mesh_closest(m, o, d)
+        if h is not None and h[0] < best_t:
+            best, best_t = s, h[0]
+    h = ray_mesh_closest(world, o, d)
+    if h is not None and h[0] < best_t:
+        best, best_t = obj, h[0]
+    return best, (o + d * best_t if best is not None else None)
+v.camera.set_view("front"); v.camera.fit(scene.bounds(), (100, 100)); vp = v._view_projection()
+same = supports = models = 0
+for x in range(250, 560, 14):
+    for y in range(150, 460, 14):
+        got, ref = v._pick(QPoint(x, y)), reference(QPoint(x, y))
+        same += got[0] is ref[0] and (got[1] is None or bool(np.allclose(got[1], ref[1], atol=1e-6)))
+        supports += isinstance(got[0], type(scene.supports[0]))
+        models += got[0] is obj
+print(same == 23 * 23, supports > 10, models > 10, v._pick(QPoint(2, 2))[0] is None)
+'''
+    r = _run_python(code, {"QT_QPA_PLATFORM": "offscreen"})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["True", "True", "True", "True"]

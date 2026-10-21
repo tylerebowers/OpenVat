@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 from shapely.geometry import Polygon
 
 from .profiles import PrinterProfile
-from .slicer import SliceResult, Layer
+from .slicer import SliceResult, Layer, in_threads
 
 SUPERSAMPLE = 3                      # sub-pixels per pixel per axis (odd!)
 MIN_COVERAGE = (SUPERSAMPLE * SUPERSAMPLE + 1) // 2   # >= 50 %
@@ -89,36 +89,42 @@ class VoxelVolume:
         horizontal: list[np.ndarray] = []
         walls: list[np.ndarray] = []                 # dir, plane, start, end, k0, k1
         empty = np.zeros_like(self.packed[0]) if self.packed else None
-        below = empty                                # packed bits of the layer below
         groups = self.groups(max_layer)
-        for n, (first, last) in enumerate(groups):
-            if progress and n % 16 == 0:
-                progress(n, len(groups))
+
+        def group_faces(n: int):
+            """The bottom faces of group n and the walls along it (each group
+            only needs its own bits and those of the group below, so several
+            are worked out at once)."""
+            first, last = groups[n]
             cur = self.packed[first]
+            below = self.packed[groups[n - 1][0]] if n else empty
             # work only where this layer or the one below has material (plus an
             # empty row and byte on every side), straight on the packed bits
             box = self._window(cur | below)
             if box is None:
-                below = cur
-                continue
+                return [], []
             r0, r1, b0, b1 = box
             c0 = b0 * 8
             c, b = cur[r0:r1, b0:b1], below[r0:r1, b0:b1]
             # horizontal faces at the bottom of this group (every mask below is
             # ANDed with a layer, so the padding bits past nx stay zero)
-            horizontal.append(_rect_faces(b & ~c, PZ, first, r0, c0))
-            horizontal.append(_rect_faces(~b & c, NZ, first, r0, c0))
+            flat = [_rect_faces(b & ~c, PZ, first, r0, c0), _rect_faces(~b & c, NZ, first, r0, c0)]
             k0, k1 = first, last + 1
             # walls between rows j-1 and j (normal +-Y): runs along X
             prev, this = c[:-1], c[1:]
-            walls.append(_wall_runs(prev & ~this, PY, r0 + 1, c0, k0, k1))
-            walls.append(_wall_runs(~prev & this, NY, r0 + 1, c0, k0, k1))
+            side = [_wall_runs(prev & ~this, PY, r0 + 1, c0, k0, k1), _wall_runs(~prev & this, NY, r0 + 1, c0, k0, k1)]
             # walls between columns i-1 and i (normal +-X): where each row's runs
             # end or start, joined across consecutive rows
             row, start, end = _packed_runs(c)
-            walls.append(_column_walls(end + c0, row + r0, PX, k0, k1))
-            walls.append(_column_walls(start + c0, row + r0, NX, k0, k1))
-            below = cur
+            side += [_column_walls(end + c0, row + r0, PX, k0, k1), _column_walls(start + c0, row + r0, NX, k0, k1)]
+            return flat, side
+
+        for n, (flat, side) in enumerate(in_threads(group_faces, len(groups))):
+            horizontal += flat
+            walls += side
+            if progress and n % 16 == 0:
+                progress(n, len(groups))
+        below = self.packed[groups[-1][0]] if groups else empty
         if groups:                                   # the top of the last group
             box = self._window(below)
             if box is not None:
@@ -387,31 +393,63 @@ def _rect_faces(mask: np.ndarray, direction: int, k: int, row0: int, col0: int) 
 # rasterization
 
 def _raster(layer: Layer, origin: np.ndarray, vx: float, vy: float, nx: int, ny: int) -> np.ndarray:
-    """Boolean (ny, nx) bitmap: True where >= 50 % of the voxel is inside."""
+    """Boolean (ny, nx) bitmap: True where >= 50 % of the voxel is inside.
+
+    Each polygon is drawn on its own, in a small image over just its
+    bounding box (aligned to the voxel grid), and its sub-pixels are counted
+    into the voxels there - instead of drawing the whole layer on one image
+    of the whole grid (at 3 x 3 sub-pixels per printer pixel that is tens of
+    millions of sub-pixels per layer, mostly empty).  The polygons of a
+    layer never overlap, so the counts simply add up."""
     if layer.geometry.is_empty:
         return np.zeros((ny, nx), dtype=bool)
     s = SUPERSAMPLE
     sx, sy = vx / s, vy / s
-    img = Image.new("1", (nx * s, ny * s), 0)
-    draw = ImageDraw.Draw(img)
     # PIL fills every sub-pixel its outline touches; shrinking the polygon by
     # half a sub-pixel turns that into sampling at sub-pixel centers.
     shrunk = layer.geometry.buffer(-min(sx, sy) / 2, join_style="mitre")
     polys = [shrunk] if isinstance(shrunk, Polygon) else [g for g in getattr(shrunk, "geoms", []) if isinstance(g, Polygon)]
-    for poly in sorted(polys, key=lambda p: -p.area):      # islands inside holes last
+    count = np.zeros((ny, nx), dtype=np.uint8)
+    for poly in polys:
         if poly.is_empty:
             continue
-        draw.polygon(_to_px(poly.exterior.coords, origin, sx, sy), fill=1)
+        x0, y0, x1, y1 = poly.bounds                      # its window, in whole voxels (one spare all round)
+        i0 = max(int(np.floor((x0 - origin[0]) / vx)) - 1, 0)
+        j0 = max(int(np.floor((y0 - origin[1]) / vy)) - 1, 0)
+        i1 = min(int(np.ceil((x1 - origin[0]) / vx)) + 1, nx)
+        j1 = min(int(np.ceil((y1 - origin[1]) / vy)) + 1, ny)
+        if i1 <= i0 or j1 <= j0:
+            continue
+        img = Image.new("L", ((i1 - i0) * s, (j1 - j0) * s), 0)     # a byte per sub-pixel: no unpacking
+        draw = ImageDraw.Draw(img)
+        shift = (i0 * s, j0 * s)
+        draw.polygon(_to_px(poly.exterior.coords, origin, sx, sy, shift), fill=1)
         for ring in poly.interiors:
-            draw.polygon(_to_px(ring.coords, origin, sx, sy), fill=0)
-    sub = np.asarray(img, dtype=np.uint8)
-    cover = sub.reshape(ny, s, nx, s).sum(axis=(1, 3))
-    return cover >= MIN_COVERAGE
+            draw.polygon(_to_px(ring.coords, origin, sx, sy, shift), fill=0)
+        count[j0:j1, i0:i1] += _block_sums(np.asarray(img, dtype=np.uint8), s)
+    return count >= MIN_COVERAGE
 
 
-def _to_px(coords, origin, sx, sy):
-    c = np.asarray(coords)
-    return [(float((x - origin[0]) / sx), float((y - origin[1]) / sy)) for x, y in c]
+def _block_sums(sub: np.ndarray, s: int) -> np.ndarray:
+    """Sum of each s x s block (as reshape(h, s, w, s).sum(axis=(1, 3)),
+    but adding strided slices is many times faster)."""
+    rows = sub[0::s].copy()
+    for k in range(1, s):
+        rows += sub[k::s]
+    out = rows[:, 0::s].copy()
+    for k in range(1, s):
+        out += rows[:, k::s]
+    return out
+
+
+def _to_px(coords, origin, sx, sy, shift=(0, 0)) -> list[float]:
+    """Sub-pixel coordinates (flat x, y, x, y, ...) in an image whose corner
+    is sub-pixel ``shift``."""
+    c = np.asarray(coords, dtype=np.float64)
+    xy = np.empty_like(c)
+    xy[:, 0] = (c[:, 0] - origin[0]) / sx - shift[0]
+    xy[:, 1] = (c[:, 1] - origin[1]) / sy - shift[1]
+    return xy.ravel().tolist()
 
 
 def _same_geometry(a, b) -> bool:
@@ -446,18 +484,28 @@ def build_volume(result: SliceResult, pixels_per_voxel: int = 1,
     nx, ny = ix1 - ix0, iy1 - iy0
 
     vol = VoxelVolume(layers, origin, (vx, vy), nx, ny)
-    prev_geom, prev_bits, prev_count = None, None, 0
+    # a layer the same as the one last drawn reuses its bitmap
+    source, prev = [], None
     for i, layer in enumerate(layers):
-        if prev_geom is not None and _same_geometry(layer.geometry, prev_geom):
-            bits, count = prev_bits, prev_count
-        else:
-            mask = _raster(layer, origin, vx, vy, nx, ny)
-            bits, count = np.packbits(mask, axis=1), int(mask.sum())
-            prev_geom, prev_bits, prev_count = layer.geometry, bits, count
+        if prev is None or not _same_geometry(layer.geometry, layers[prev].geometry):
+            prev = i
+        source.append(prev)
+
+    todo = sorted(set(source))
+
+    def draw(k: int):
+        mask = _raster(layers[todo[k]], origin, vx, vy, nx, ny)
+        return np.packbits(mask, axis=1), int(mask.sum())
+
+    drawn: dict[int, tuple] = {}
+    for k, bits_count in enumerate(in_threads(draw, len(todo))):     # several layers at a time
+        drawn[todo[k]] = bits_count
+        if progress and k % 10 == 0:
+            progress(todo[k] + 1, len(layers))
+    for i in range(len(layers)):
+        bits, count = drawn[source[i]]
         vol.packed.append(bits)
         vol.solid_count.append(count)
-        if progress and i % 10 == 0:
-            progress(i + 1, len(layers))
     if progress:
         progress(len(layers), len(layers))
     return vol
