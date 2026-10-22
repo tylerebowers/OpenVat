@@ -52,8 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0                              # no printer set up: nothing to do
     window = MainWindow(store)
     window.show()
-    for path in argv[1:]:                     # models given on the command line
-        window.load_model(path)
+    for path in argv[1:]:                     # models or projects given on the command line
+        window.open_path(path)
     return app.exec()
 
 

@@ -7,6 +7,7 @@ deliberately Qt-free so it can be used from the CLI and from tests.
 
 from __future__ import annotations
 
+from itertools import count
 from typing import Callable
 
 import math
@@ -43,10 +44,37 @@ class Scene:
         self._brace_cache: dict = {}                # see generate_braces
         self.extras_version = 0           # bumps whenever support_meshes() is rebuilt
         self.support_report: dict = {}    # what the last Automatic run made (and skipped)
+        # which state the plate is in: a new number with every edit, the old one
+        # back on undo - so "unsaved changes" is just revision != the saved one
+        self._revisions = count(1)
+        self.revision = 0
 
     def push_undo(self) -> None:
         """Call before changing anything the user might want to undo."""
         self.undo_stack.push()
+        self.touch()
+
+    def touch(self) -> None:
+        """Something worth saving changed (also settings that have no undo step)."""
+        self.revision = next(self._revisions)
+
+    def replace_all(self, objects: list[MeshObject], supports: list[Support],
+                    support_settings: SupportSettings | None = None,
+                    hollow_settings: HollowSettings | None = None) -> None:
+        """A different plate (a project was opened, or a new one started):
+        everything replaced, nothing to undo back to."""
+        self.objects = list(objects)
+        self.supports = list(supports)
+        if support_settings is not None:
+            self.support_settings = support_settings
+        if hollow_settings is not None:
+            self.hollow_settings = hollow_settings
+        self.selected = self.objects[0] if len(self.objects) == 1 else None
+        self.selected_support = None
+        self.support_report = {}
+        self.undo_stack.clear()
+        self.touch()
+        self.changed()
 
     # ------------------------------------------------------------- notify
     def changed(self) -> None:

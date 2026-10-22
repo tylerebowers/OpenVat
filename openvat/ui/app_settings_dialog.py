@@ -1,7 +1,8 @@
 """Edit → Preferences: light / dark theme (dark unless the user picks
 light), the 3D view's colors for each theme and its lighting (see
-lighting.py), the interface zoom and the folder the printer and resin
-profiles are kept in - on three tabs.
+lighting.py), the interface zoom, the folder the printer and resin
+profiles are kept in, and how projects behave (the home page at start,
+asking to save) - on four tabs.
 
 The theme switches the whole application between an explicit light and an
 explicit dark palette (Fusion style for both, so it changes even when the
@@ -213,6 +214,23 @@ class PreferencesDialog(QDialog):
         root = QVBoxLayout(self)
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
+
+        general = QWidget()
+        glay = QVBoxLayout(general)
+        projects = QGroupBox("Projects")
+        play_ = QVBoxLayout(projects)
+        self.home_at_start = QCheckBox("Show the home page when OpenVat starts")
+        self.home_at_start.setChecked(bool(store.settings.get("home_at_start", True)))
+        self.ask_save = QCheckBox("Ask to save unsaved changes before closing OpenVat\n"
+                                  "(and before starting or opening another project)")
+        self.ask_save.setChecked(bool(store.settings.get("ask_save_on_close", False)))
+        self.ask_save.setToolTip("Unsaved changes show as a * in the window title")
+        play_.addWidget(self.home_at_start)
+        play_.addWidget(self.ask_save)
+        glay.addWidget(projects)
+        glay.addStretch(1)
+        self.tabs.addTab(general, "General")
+
         appearance = QWidget()
         alay = QVBoxLayout(appearance)
         self.tabs.addTab(appearance, "Appearance")
@@ -455,6 +473,8 @@ class PreferencesDialog(QDialog):
             return
         dark, colors, light = self.values()
         self.store.settings["lighting"] = light.to_dict()
+        self.store.settings["home_at_start"] = self.home_at_start.isChecked()
+        self.store.settings["ask_save_on_close"] = self.ask_save.isChecked()
         self.store.settings["dark_mode"] = dark
         self.store.settings["colors"] = {
             theme: {k: v for k, v in colors[theme].items() if v != DEFAULT_THEME_COLORS[theme][k]}

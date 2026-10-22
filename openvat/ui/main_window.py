@@ -1,12 +1,20 @@
-"""Main window: menu bar, the 3D page and the layer-view page."""
+"""Main window: menu bar, the home page, the 3D page, the layer view and
+the voxel preview.
+
+It also keeps the project: the file the plate was opened from or saved to
+(the title shows its name, with a * while there are unsaved changes -
+``Scene.revision`` differs from the one saved), and the recent files and
+projects the home page lists."""
 
 from __future__ import annotations
 
+import hashlib
+import io
 import os
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot, QUrl
+from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot, QUrl, QTimer, QBuffer, QIODevice
 from PySide6.QtGui import QAction, QKeySequence, QColor
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QStackedWidget,
                                QFileDialog, QMessageBox, QProgressDialog, QPushButton,
@@ -19,8 +27,12 @@ from ..core.scene import Scene
 from ..core.slicer import slice_scene, SliceResult
 from ..core.supports import SupportSettings
 from ..core.hollow import HollowSettings
-from ..core import usb
+from ..core import stats, usb
+from ..core.problems import find_problems
+from ..core.project import EXTENSION as PROJECT_EXT, FILE_FILTER as PROJECT_FILTER, is_project, load_project, \
+    save_project
 from ..formats.export import write_print_file, why_not
+from ..formats.preview import render_preview
 from .about_dialog import AboutDialog
 from .app_settings_dialog import (PreferencesDialog, apply_dark_mode, dark_mode, saved_colors, saved_lighting,
                                   theme_name)
@@ -32,9 +44,12 @@ from .tools_panel import ToolsPanel
 from .view_cube import ViewCube
 from .viewport3d import Viewport3D, software_renderer
 from .usb_export import UsbWatcher
+from .home_page import HomePage
 
 HINT = ("Left-drag: move · Right-drag: orbit · Middle/Shift-drag: pan · "
         "Wheel: zoom · F: fit · Drop files here to import")
+PAGE_3D, PAGE_LAYERS, PAGE_VOXELS, PAGE_HOME = range(4)
+RECENT_MAX = 12                     # entries kept in each recent list
 
 
 class SliceWorker(QObject):
@@ -73,6 +88,9 @@ class MainWindow(QMainWindow):
         if "hollowing" in self.store.settings:
             self.scene.hollow_settings = HollowSettings.from_dict(self.store.settings["hollowing"])
         self.result: SliceResult | None = None
+        self._result_revision: int | None = None    # the plate's revision when it was sliced
+        self.project_path: str | None = None         # the project file the plate belongs to
+        self._saved_revision = self.scene.revision   # unsaved changes: the revision moved on from this
         self._thread: QThread | None = None
         self._worker: SliceWorker | None = None
         self.progress: QProgressDialog | None = None
@@ -92,6 +110,15 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.voxel_page)
         for page in (self.layer_page, self.voxel_page):
             page.usb_btn.export_to.connect(self.export_to_usb)
+        self.home_page = HomePage()
+        self.home_page.open_file.connect(self.load_model)
+        self.home_page.open_project.connect(self.open_project)
+        self.home_page.new_project.connect(self.new_project)
+        self.home_page.open_model_requested.connect(self.open_models)
+        self.home_page.open_project_requested.connect(self.open_project_dialog)
+        self.home_page.back_requested.connect(lambda: self.pages.setCurrentIndex(PAGE_3D))
+        self.home_page.remove_recent.connect(self._forget_recent)
+        self.pages.addWidget(self.home_page)
 
         self._build_menus()
         self.usb = UsbWatcher(self)                # USB drives come and go: the Export to USB buttons
@@ -103,6 +130,25 @@ class MainWindow(QMainWindow):
         self._printer_changed(self.side.current_printer())
         self.scene.listeners.append(self._update_hint)
         self._update_hint()
+
+        # unsaved changes (the title's *) and the problems list follow every edit
+        self._problems_timer = QTimer(self)
+        self._problems_timer.setSingleShot(True)
+        self._problems_timer.setInterval(120)
+        self._problems_timer.timeout.connect(self._refresh_problems)
+        self.scene.listeners.append(self._scene_changed)
+        self.tools.settings_changed.connect(self._settings_touched)       # changes without an undo step
+        self.tools.hollow_settings_changed.connect(self._settings_touched)
+        self.side.printer_changed.connect(lambda _p: self._settings_touched())
+        self.side.resin_changed.connect(lambda _r: self._settings_touched())
+        self.side.problems.activated.connect(self._problem_clicked)
+        self.tools.supports_made.connect(lambda n: self._count(supports=n))
+        self._saved_revision = self.scene.revision
+        self._update_title()
+        self._refresh_problems()
+        self._refresh_home()
+        if self.store.settings.get("home_at_start", True):
+            self.pages.setCurrentIndex(PAGE_HOME)
 
     # ------------------------------------------------------------ layout
     def _build_3d_page(self) -> QWidget:
@@ -138,9 +184,14 @@ class MainWindow(QMainWindow):
         slice_btn.setMinimumHeight(32)
         slice_btn.setStyleSheet("font-weight: bold; padding: 4px 18px;")
         slice_btn.clicked.connect(self.slice)
+        home_btn = QPushButton("⌂ Home")
+        home_btn.setMinimumHeight(32)
+        home_btn.setStyleSheet("padding: 4px 14px;")
+        home_btn.setToolTip("The home page: recent files and projects (Ctrl+0)")
+        home_btn.clicked.connect(self.show_home)
 
         self.host = ViewportHost(self.viewport, self.tools, self.side, overlay=self.view_cube,
-                                 hint=self.hint, action=slice_btn)
+                                 hint=self.hint, action=slice_btn, left_action=home_btn)
         self.host.widths_changed.connect(self._save_panel_widths)
         layout.addWidget(self.host, stretch=1)
 
@@ -167,7 +218,13 @@ class MainWindow(QMainWindow):
         bar = self.menuBar()
 
         file_menu = bar.addMenu("&File")
+        self._action(file_menu, "&New project", self.new_project, QKeySequence.New)
+        self._action(file_menu, "Open &project…", self.open_project_dialog, "Ctrl+Shift+O")
         self._action(file_menu, "&Open model…", self.open_models, QKeySequence.Open)
+        file_menu.addSeparator()
+        self._action(file_menu, "&Save project", self.save_project, QKeySequence.Save)
+        self._action(file_menu, "Save project &as…", lambda: self.save_project(as_new=True), "Ctrl+Shift+S")
+        file_menu.addSeparator()
         self._action(file_menu, "&Export print file…", self.export_print_file, "Ctrl+E")
         self.usb_menu = file_menu.addMenu("Export to &USB")
         self._drives_changed([])
@@ -207,6 +264,7 @@ class MainWindow(QMainWindow):
             act.toggled.connect(box.setChecked)
         view_menu.addSeparator()
         self._action(view_menu, "Fit to scene", self.viewport.fit_view, "F")
+        self._action(view_menu, "Home page", self.show_home, "Ctrl+0")
         self._action(view_menu, "3D view", lambda: self.pages.setCurrentIndex(0), "Ctrl+1")
         self._action(view_menu, "Layer view", self._show_layers, "Ctrl+2")
         self._action(view_menu, "Voxel preview", self._show_voxels, "Ctrl+3")
@@ -254,14 +312,14 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ drag & drop
     def dragEnterEvent(self, event) -> None:
-        if any(self._is_model(u.toLocalFile()) for u in event.mimeData().urls()):
+        if any(self._is_model(u.toLocalFile()) or is_project(u.toLocalFile()) for u in event.mimeData().urls()):
             event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if self._is_model(path):
-                self.load_model(path)
+            if is_project(path) or self._is_model(path):
+                self.open_path(path)
         event.acceptProposedAction()
 
     @staticmethod
@@ -274,6 +332,13 @@ class MainWindow(QMainWindow):
         for p in paths:
             self.load_model(p)
 
+    def open_path(self, path: str) -> None:
+        """A project or a model file (the command line, a drop)."""
+        if is_project(path):
+            self.open_project(path)
+        else:
+            self.load_model(path)
+
     def load_model(self, path: str) -> None:
         try:
             objects = load_file(path)
@@ -285,7 +350,243 @@ class MainWindow(QMainWindow):
         if len(self.scene.objects) > 1:
             self.scene.arrange(self.side.current_printer())
         self.viewport.fit_view()
-        self.pages.setCurrentIndex(0)
+        self.pages.setCurrentIndex(PAGE_3D)
+        self._count(models=1)
+        self._remember_recent("files", path)
+        meshes = [o.transformed() for o in objects]
+        QTimer.singleShot(0, lambda: self._make_model_thumbnail(path, meshes))
+
+    # ------------------------------------------------------------ projects
+    def new_project(self) -> None:
+        """An empty plate (the printer, resin and settings stay)."""
+        if not self._maybe_save("starting a new project"):
+            return
+        self.scene.replace_all([], [])
+        self._project_loaded(None)
+
+    def open_project_dialog(self) -> None:
+        start = str(Path(self.project_path).parent) if self.project_path else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", start, f"{PROJECT_FILTER};;All files (*)")
+        if path:
+            self.open_project(path)
+
+    def open_project(self, path: str) -> None:
+        """Put a project on the plate: its models, supports and settings, and
+        its printer and resin (added to the profiles if they are not there)."""
+        if not self._maybe_save("opening another project"):
+            return
+        try:
+            proj = load_project(path)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Could not open project", str(exc))
+            return
+        added = self._use_profiles(proj.printer, proj.resin)
+        self.scene.replace_all(proj.objects, proj.supports, proj.support_settings, proj.hollow_settings)
+        self._save_support_settings()                 # what the panels and the next Automatic use
+        self._save_hollow_settings()
+        self._project_loaded(path)
+        if added:
+            QMessageBox.information(self, "Open project", "Added from the project to your profiles: "
+                                    + ", ".join(added) + ".")
+
+    def _project_loaded(self, path: str | None) -> None:
+        self.result, self._result_revision = None, None
+        self.project_path = str(path) if path else None
+        self._saved_revision = self.scene.revision
+        if path:
+            self._remember_recent("projects", path)
+        self.viewport.fit_view()
+        self.pages.setCurrentIndex(PAGE_3D)
+        self._update_title()
+
+    def _use_profiles(self, printer, resin) -> list[str]:
+        """Select the project's printer and resin - the same-named profile
+        if there is one, else the project's own copy, added.  Returns the
+        names added."""
+        if printer is None:
+            return []
+        added = []
+        mine = self.store.find_printer(printer.name)
+        if mine is None:
+            self.store.printers.append(printer)
+            mine = printer
+            added.append(printer.name)
+        res = None
+        if resin is not None:
+            res = self.store.find_resin(mine, resin.name)
+            if res is None:
+                self.store.resins_for(mine).append(resin)
+                res = resin
+                added.append(resin.name)
+        if added:
+            self.store.save()
+        self.side.select_profiles(mine, res)
+        return added
+
+    def save_project(self, as_new: bool = False) -> bool:
+        """Save the plate to its project file (asking for one the first time,
+        or with ``as_new``).  False when it was not saved."""
+        path = self.project_path
+        if as_new or not path:
+            name = Path(path).name if path else self._project_name() + PROJECT_EXT
+            start = str(Path(path).parent / name) if path else name
+            path, _ = QFileDialog.getSaveFileName(self, "Save project", start, PROJECT_FILTER)
+            if not path:
+                return False
+            if not path.lower().endswith(PROJECT_EXT):
+                path += PROJECT_EXT
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            save_project(path, self.scene, self.side.current_printer(), self.side.current_resin(),
+                         self._project_thumbnail())
+        except OSError as exc:
+            QMessageBox.critical(self, "Could not save project", f"{path}\n\n{exc}")
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.project_path = path
+        self._saved_revision = self.scene.revision
+        self._count(projects=1)
+        self._remember_recent("projects", path)
+        self._update_title()
+        return True
+
+    def _project_name(self) -> str:
+        name = self.scene.objects[0].name if self.scene.objects else "project"
+        return re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name).strip(" .") or "project"
+
+    def _project_thumbnail(self) -> bytes | None:
+        """PNG of the build plate: the 3D view's picture, or (before OpenGL
+        has started) a plain rendering of the models."""
+        image = self.viewport.snapshot(480, 300)
+        if image is not None:
+            buf = QBuffer()
+            buf.open(QIODevice.WriteOnly)
+            image.save(buf, "PNG")
+            return bytes(buf.data())
+        meshes = [o.transformed() for o in self.scene.objects if o.visible] + self.scene.support_meshes()
+        if not meshes:
+            return None
+        out = io.BytesIO()
+        render_preview(meshes, (480, 300), background=self.viewport.colors["background"][:3],
+                       model_color=self.viewport.colors["model"][:3]).save(out, "PNG")
+        return out.getvalue()
+
+    def _dirty(self) -> bool:
+        return self.scene.revision != self._saved_revision
+
+    def _update_title(self) -> None:
+        name = Path(self.project_path).stem if self.project_path else "Untitled"
+        self.setWindowTitle(f"{name}[*] - {APP_NAME} {__version__}")
+        self.setWindowModified(self._dirty())
+
+    def _scene_changed(self) -> None:
+        self._update_title()
+        self._problems_timer.start()
+
+    def _settings_touched(self) -> None:
+        """A setting saved with the project changed (no undo step for it)."""
+        self.scene.touch()
+        self._update_title()
+        self._problems_timer.start()
+
+    def _maybe_save(self, doing: str) -> bool:
+        """With "Ask to save" on (Preferences) and unsaved changes: Save /
+        Don't save / Cancel.  False: cancelled (or saving failed)."""
+        if not self.store.settings.get("ask_save_on_close", False) or not self._dirty():
+            return True
+        if not self.scene.objects and not self.project_path:
+            return True                              # nothing on an unsaved plate: nothing to lose
+        name = Path(self.project_path).stem if self.project_path else "this project"
+        box = QMessageBox(QMessageBox.Question, "Save project?",
+                          f"Save the changes to {name} before {doing}?", parent=self)
+        box.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Save)
+        answer = box.exec()
+        if answer == QMessageBox.Save:
+            return self.save_project()
+        return answer == QMessageBox.Discard
+
+    def closeEvent(self, event) -> None:
+        if self._maybe_save("closing"):
+            event.accept()
+        else:
+            event.ignore()
+
+    # ------------------------------------------------------------ home page
+    def show_home(self) -> None:
+        self._refresh_home()
+        self.pages.setCurrentIndex(PAGE_HOME)
+
+    def _recent(self, kind: str) -> list[str]:
+        items = self.store.settings.get(f"recent_{kind}", [])
+        return [str(p) for p in items] if isinstance(items, list) else []
+
+    def _remember_recent(self, kind: str, path: str) -> None:
+        path = str(Path(path).resolve())
+        items = [path] + [p for p in self._recent(kind) if p != path]
+        self.store.settings[f"recent_{kind}"] = items[:RECENT_MAX]
+        self.store.save_settings()
+        self._refresh_home()
+
+    def _forget_recent(self, kind: str, path: str) -> None:
+        self.store.settings[f"recent_{kind}"] = [p for p in self._recent(kind) if p != path]
+        self.store.save_settings()
+        self._refresh_home()
+
+    def _thumbnail_file(self, path: str) -> Path:
+        return self.store.home / "thumbnails" / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:20] + ".png")
+
+    def _make_model_thumbnail(self, path: str, meshes: list) -> None:
+        """A picture of a model file for its card on the home page (kept in
+        the OpenVat folder; made again when the file changes)."""
+        target = self._thumbnail_file(str(Path(path).resolve()))
+        try:
+            if target.exists() and target.stat().st_mtime >= os.path.getmtime(path):
+                return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            render_preview(meshes, (360, 240), background=self.viewport.colors["background"][:3],
+                           model_color=self.viewport.colors["model"][:3]).save(target, "PNG")
+        except (OSError, ValueError):
+            return
+        self._refresh_home()
+
+    def _count(self, **amounts) -> None:
+        """Add to the running totals the home page shows."""
+        stats.add(self.store.settings, **amounts)
+        self.store.save_settings()
+        self.home_page.set_totals(stats.totals(self.store.settings))
+
+    def _refresh_home(self) -> None:
+        self.home_page.set_totals(stats.totals(self.store.settings))
+        files = self._recent("files")
+        thumbs = {}
+        for p in files:
+            t = self._thumbnail_file(p)
+            if t.exists():
+                thumbs[p] = str(t)
+        self.home_page.set_recent(files, self._recent("projects"), thumbs)
+
+    # ------------------------------------------------------------ problems
+    def _refresh_problems(self) -> None:
+        printer, resin = self.side.current_printer(), self.side.current_resin()
+        current = self.result is not None and self._result_revision == self.scene.revision
+        note = ""
+        if printer is not None and not printer.can_export:
+            note = f"{printer.name}: slicing and the previews work, but OpenVat cannot write its print files yet"
+        self.side.set_problems(find_problems(self.scene, printer, resin, self.result if current else None, note))
+
+    def _problem_clicked(self, problem) -> None:
+        """Show what a problem is about: its layer (islands) or its model."""
+        if problem.layer is not None and self.result is not None:
+            self.pages.setCurrentIndex(PAGE_LAYERS)
+            self.layer_page.slider.setValue(problem.layer)
+            return
+        obj = self.scene.find(problem.object_id) if problem.object_id is not None else None
+        if obj is not None:
+            self.scene.selected, self.scene.selected_support = obj, None
+            self.scene.changed()
+            self.pages.setCurrentIndex(PAGE_3D)
 
     def undo(self) -> None:
         if self.scene.undo_stack.undo():
@@ -539,6 +840,7 @@ class MainWindow(QMainWindow):
         self.progress.setMinimumDuration(0)
         self.progress.setValue(0)
 
+        self._slicing_revision = self.scene.revision
         self._thread = QThread(self)
         self._worker = SliceWorker(self.scene, printer, resin)
         self._worker.moveToThread(self._thread)
@@ -560,8 +862,11 @@ class MainWindow(QMainWindow):
     def _slice_done(self, result: SliceResult) -> None:
         self._close_progress()
         self.result = result
+        self._result_revision = getattr(self, "_slicing_revision", None)
+        self._count(slices=1, layers=len(result.layers))
         self.layer_page.set_result(result)
         self.pages.setCurrentIndex(1)
+        self._refresh_problems()
 
     @Slot(str)
     def _slice_failed(self, message: str) -> None:
@@ -641,22 +946,21 @@ class MainWindow(QMainWindow):
                 return
         if not self._write_export(path):
             return
+        self._count(usb=1)
         box = QMessageBox(QMessageBox.Information, "Export to USB",
                           f"Saved {Path(path).name} to {drive.label}.", parent=self)
         eject = box.addButton("Eject", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Ok)
         box.setDefaultButton(eject)
         box.exec()
-        if box.clickedButton() is eject:
+        if box.clickedButton() is eject:                  # eject and that's it (a message only if it fails)
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try:
                 ok, why = usb.eject(drive)
             finally:
                 QApplication.restoreOverrideCursor()
             self.usb.refresh()
-            if ok:
-                QMessageBox.information(self, "Export to USB", f"{drive.label} can be unplugged now.")
-            else:
+            if not ok:
                 QMessageBox.warning(self, "Export to USB", f"Could not eject {drive.label}.\n\n{why}")
 
     def _write_export(self, path: str) -> bool:
@@ -683,6 +987,7 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
             progress.close()
             progress.deleteLater()
+        self._count(exports=1, resin_ml=self.result.volume_mm3() / 1000, print_s=self.result.print_time_s())
         return True
 
     def _drives_changed(self, drives: list) -> None:

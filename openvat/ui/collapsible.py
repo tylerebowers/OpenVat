@@ -22,8 +22,9 @@ corners, so how the window system composes widgets over OpenGL does not
 matter.
 
 ``ViewportHost`` holds the 3D view and floats the two columns over its
-edges, the navigation cube, and along the bottom a hint line (``HintLine``:
-outlined text, no background) and an action button (Slice).
+edges, the navigation cube, and along the bottom a button at each end
+(Home, Slice) with a hint line between them, in the middle (``HintLine``:
+outlined text, no background).
 """
 
 from __future__ import annotations
@@ -614,9 +615,9 @@ class SectionColumn(QWidget):
 class ViewportHost(QWidget):
     """Holds the 3D view and floats over it: the two card columns at its
     left and right edges, the navigation cube left of the right column, and
-    along the bottom a hint line (transparent, clicks go through to the
-    view) and an action button.  ``widths_changed`` fires when the user has
-    resized a column."""
+    along the bottom a button at each end (``left_action``, ``action``) with
+    the hint line centered between them (transparent, clicks go through to
+    the view).  ``widths_changed`` fires when the user has resized a column."""
 
     MARGIN = 8                # px around the floating things
     EDGE = 2                  # px from the window edge to a column (its gutter adds the rest)
@@ -624,10 +625,10 @@ class ViewportHost(QWidget):
 
     def __init__(self, viewport: QWidget, left: SectionColumn, right: SectionColumn,
                  overlay: QWidget | None = None, hint: QWidget | None = None,
-                 action: QWidget | None = None, parent=None):
+                 action: QWidget | None = None, left_action: QWidget | None = None, parent=None):
         super().__init__(parent)
         self.viewport, self.left, self.right, self.overlay = viewport, left, right, overlay
-        self.hint, self.action = hint, action
+        self.hint, self.action, self.left_action = hint, action, left_action
         viewport.setParent(self)
         for col in (left, right):
             col.setParent(self)
@@ -644,9 +645,10 @@ class ViewportHost(QWidget):
             hint.setParent(self)
             hint.setAttribute(Qt.WA_TransparentForMouseEvents)     # clicks reach the 3D view
             hint.setAutoFillBackground(False)
-        if action is not None:
-            action.setParent(self)
-        for w in (hint, action):
+        for w in (action, left_action):
+            if w is not None:
+                w.setParent(self)
+        for w in (hint, action, left_action):
             if w is not None:
                 w.raise_()
 
@@ -684,15 +686,25 @@ class ViewportHost(QWidget):
         w, h = self.width(), self.height()
         self.viewport.setGeometry(0, 0, w, h)
         band = 0                                      # room kept free along the bottom
+        left, right = m, w - m                        # what the hint has between the buttons
         if self.action is not None:
             ah = self.action.sizeHint().height()
             aw = self.action.sizeHint().width()
             self.action.setGeometry(w - m - aw, h - m - ah, aw, ah)
             band = ah + m
-        if self.hint is not None:
-            hh = self.hint.sizeHint().height()
-            right = (w - m - self.action.sizeHint().width() - m) if self.action is not None else w - m
-            self.hint.setGeometry(m + 4, h - m - max(hh, band - m), max(right - m - 4, 10), max(hh, band - m))
+            right = w - m - aw - m
+        if self.left_action is not None:
+            lh = self.left_action.sizeHint().height()
+            lw = self.left_action.sizeHint().width()
+            self.left_action.setGeometry(m, h - m - lh, lw, lh)
+            band = max(band, lh + m)
+            left = m + lw + m
+        if self.hint is not None:                     # in the middle (left-aligned if it doesn't fit)
+            hh = max(self.hint.sizeHint().height(), band - m)
+            room = max(right - left, 10)
+            hw = min(self.hint.sizeHint().width(), room)
+            x = max(left, min((w - hw) // 2, right - hw))
+            self.hint.setGeometry(x, h - m - hh, hw, hh)
             band = max(band, hh + m)
         avail = max(h - 2 * m - band, 50)
         for col, x in ((self.left, self.EDGE), (self.right, w - self.right.width() - self.EDGE)):

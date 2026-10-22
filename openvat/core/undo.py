@@ -41,6 +41,7 @@ class _Snapshot:
     selected_support_id: int | None
     support_settings: object
     hollow_settings: object
+    revision: int = 0
 
 
 class UndoStack:
@@ -61,6 +62,7 @@ class UndoStack:
             selected_support_id=s.selected_support.id if s.selected_support else None,
             support_settings=replace(s.support_settings),
             hollow_settings=replace(s.hollow_settings),
+            revision=s.revision,
         )
 
     def _restore(self, snap: _Snapshot) -> None:
@@ -81,6 +83,7 @@ class UndoStack:
         s.hollow_settings = replace(snap.hollow_settings)
         s.selected = s.find(snap.selected_id) if snap.selected_id else None
         s.selected_support = next((x for x in s.supports if x.id == snap.selected_support_id), None)
+        s.revision = snap.revision
         s.changed()
 
     # ------------------------------------------------------------ API
@@ -103,6 +106,10 @@ class UndoStack:
         self._undo.append(self._capture())
         self._restore(self._redo.pop())
         return True
+
+    def clear(self) -> None:
+        self._undo.clear()
+        self._redo.clear()
 
     def can_undo(self) -> bool:
         return bool(self._undo)

@@ -42,6 +42,7 @@ class ToolsPanel(SectionColumn):
     lay_face_toggled = Signal(bool)     # highlight the faces the model can lie on
     paint_mode_toggled = Signal(bool)   # dragging on the model paints where supports go / don't
     paint_options_changed = Signal()    # paint value or brush size
+    supports_made = Signal(int)         # supports placed (Automatic, or one by a click)
 
     def __init__(self, scene: Scene, parent=None):
         super().__init__(width=240, parent=parent)
@@ -643,6 +644,8 @@ class ToolsPanel(SectionColumn):
             n = self.scene.auto_supports(target, self.layer_height())
         finally:
             QApplication.restoreOverrideCursor()
+        if n:
+            self.supports_made.emit(n)
         report = self.scene.support_report
         if n == 0 and report.get("blocked"):
             QMessageBox.information(self, "Automatic supports",
@@ -689,6 +692,7 @@ class ToolsPanel(SectionColumn):
             return
         self.support_message = ""
         self.scene.add_support(sup)
+        self.supports_made.emit(1)
 
 
 def _report_text(report: dict) -> str:

@@ -1,6 +1,7 @@
-"""Right-hand panel: printer list, resin list, object list and the view
-options (build plate, see-through models, section view), each in a
-collapsible (the lists also resizable) card with a summary in its header."""
+"""Right-hand panel: printer list, resin list, object list, the problems
+found on the plate (see core/problems.py) and the view options (build
+plate, see-through models, section view), each in a collapsible (the
+lists also resizable) card with a summary in its header."""
 
 from __future__ import annotations
 
@@ -10,8 +11,9 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
                                QPushButton, QLabel, QMessageBox, QGridLayout, QCheckBox, QSlider,
-                               QDoubleSpinBox, QButtonGroup, QFrame)
+                               QDoubleSpinBox, QButtonGroup, QFrame, QStyle)
 
+from ..core.problems import ERROR, NOTE, WARNING, Problem
 from ..core.profiles import ProfileStore, PrinterProfile, ResinProfile
 from ..core.scene import Scene
 from .collapsible import SectionColumn
@@ -274,6 +276,58 @@ class SectionControls(QWidget):
         self.changed.emit(self.state())
 
 
+class ProblemsList(QWidget):
+    """What is wrong with the plate, worst first; click one to select the
+    model it is about (or to show the layer, for islands)."""
+    activated = Signal(object)                  # the Problem clicked
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.list = QListWidget()
+        self.list.setWordWrap(True)
+        self.list.setMinimumHeight(40)
+        self.list.setMinimumWidth(50)
+        self.list.itemClicked.connect(self._clicked)
+        self.list.itemActivated.connect(self._clicked)
+        lay.addWidget(self.list)
+        style = self.style()
+        self._icons = {ERROR: style.standardIcon(QStyle.SP_MessageBoxCritical),
+                       WARNING: style.standardIcon(QStyle.SP_MessageBoxWarning),
+                       NOTE: style.standardIcon(QStyle.SP_MessageBoxInformation)}
+        self.problems: list[Problem] = []
+        self.set_problems([])
+
+    def set_problems(self, problems: list[Problem]) -> None:
+        if [(p.level, p.text) for p in problems] == [(p.level, p.text) for p in self.problems] and self.list.count():
+            self.problems = list(problems)      # the same list: keep the scroll position and selection
+            return
+        self.problems = list(problems)
+        self.list.clear()
+        for p in problems:
+            item = QListWidgetItem(self._icons[p.level], p.text)
+            item.setToolTip(p.text + ("\n(click to select it)" if p.object_id is not None else
+                                      "\n(click to show the layer)" if p.layer is not None else ""))
+            self.list.addItem(item)
+        if not problems:
+            item = QListWidgetItem("No problems found")
+            item.setFlags(Qt.NoItemFlags)
+            self.list.addItem(item)
+
+    def summary(self) -> str:
+        errors = sum(p.level == ERROR for p in self.problems)
+        warnings = sum(p.level == WARNING for p in self.problems)
+        parts = [f"{errors} error{'s' if errors != 1 else ''}"] if errors else []
+        parts += [f"{warnings} warning{'s' if warnings != 1 else ''}"] if warnings else []
+        return " · ".join(parts) or ("notes only" if self.problems else "none")
+
+    def _clicked(self, item: QListWidgetItem) -> None:
+        row = self.list.row(item)
+        if 0 <= row < len(self.problems):
+            self.activated.emit(self.problems[row])
+
+
 class ViewControls(QWidget):
     """The View card: show the build plate, see-through models, and the
     section view (SectionControls) under them."""
@@ -347,6 +401,10 @@ class SidePanel(SectionColumn):
         self.info.setWordWrap(True)
         ol.addWidget(self.info)
         self.add("objects", "Objects", objects, stretch=1)
+        self.problems = ProblemsList()
+        self.add("problems", "Problems", self.problems, stretch=1)
+        self.sections["problems"].set_content_height(96)
+        self.sections["problems"].set_summary(self.problems.summary())
         self.view = ViewControls(scene)
         self.section = self.view.section
         self.add("view", "View", self.view, expanded=False)
@@ -408,6 +466,19 @@ class SidePanel(SectionColumn):
     def reload_profiles(self) -> None:
         self.printers.set_items(self.store.printers, self._index_of(self.store.printers, self.store.default_printer()))
         self._bind_resins()
+        self._profiles_changed(save=False)
+
+    def set_problems(self, problems: list) -> None:
+        self.problems.set_problems(problems)
+        self.sections["problems"].set_summary(self.problems.summary())
+
+    def select_profiles(self, printer: PrinterProfile | None, resin: ResinProfile | None = None) -> None:
+        """Make these the printer and resin in use (a project was opened)."""
+        if printer is not None and printer in self.store.printers:
+            self.printers.refresh(self.store.printers.index(printer))
+        self._bind_resins()
+        if resin is not None and resin in self.resins.items:
+            self.resins.refresh(self.resins.items.index(resin))
         self._profiles_changed(save=False)
 
     def _section_changed(self, state) -> None:

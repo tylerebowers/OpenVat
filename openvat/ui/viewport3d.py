@@ -368,6 +368,43 @@ class Viewport3D(QOpenGLWidget):
         self.camera.set_view(name)
         self.update()
 
+    def snapshot(self, width: int = 480, height: int = 300):
+        """A picture (QImage) of the build plate and what is on it, from the
+        usual corner and without the tools or the selection - for project
+        thumbnails.  The view itself stays as it was.  None when OpenGL has
+        not started yet."""
+        if not self.isValid() or self.width() < 8 or self.height() < 8:
+            return None
+        cam = self.camera
+        kept = (cam.target.copy(), cam.distance, cam.yaw, cam.pitch, self.show_move, self.show_rotate,
+                self.lay_face_mode, self._brush_at, self.section, self.scene.selected,
+                self.scene.selected_support, self._hover, self._overlay)
+        try:
+            self.show_move = self.show_rotate = self.lay_face_mode = False
+            self._brush_at, self.section, self._hover, self._overlay = None, None, None, None
+            self.scene.selected = self.scene.selected_support = None
+            px, py = self.printer.print_x / 2, self.printer.print_y / 2
+            box = np.array([[-px, -py, 0.0], [px, py, 0.0]])
+            content = self.content_bounds()
+            if content is not None:
+                box = np.vstack([np.minimum(box[0], content[0]), np.maximum(box[1], content[1])])
+            cam.set_view("iso")
+            cam.fit(box, (self.printer.print_x, self.printer.print_y))
+            cam.distance *= 0.8                         # the plate fills the picture
+            image = self.grabFramebuffer()
+        finally:
+            (cam.target, cam.distance, cam.yaw, cam.pitch, self.show_move, self.show_rotate,
+             self.lay_face_mode, self._brush_at, self.section, self.scene.selected,
+             self.scene.selected_support, self._hover, self._overlay) = kept
+            self.update()
+        if image.isNull():
+            return None
+        w, h = image.width(), image.height()                # crop to the thumbnail's shape, then scale
+        aspect = width / height
+        cw, ch = (w, round(w / aspect)) if w / h < aspect else (round(h * aspect), h)
+        image = image.copy((w - cw) // 2, (h - ch) // 2, cw, ch)
+        return image.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
     # ------------------------------------------------------------ GL setup
     def initializeGL(self) -> None:
         if not GL_INFO:

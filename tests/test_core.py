@@ -2142,3 +2142,211 @@ print(repr(out))
     assert out[1] == "no plate · see-through"
     assert out[2] is True
     assert out[3] == (0.8, 10) and out[4] == 0.3 and out[5] == (0.8, 10) and out[6] == (0.8, 10)
+
+
+# --------------------------------------------------------------------------
+# projects, unsaved changes, problems, the home page
+
+def test_project_round_trip(tmp_path):
+    """A project keeps the models (clones share one mesh), how they stand,
+    their holes, hollowing and paint, every support as placed, the settings,
+    the printer and resin, and the picture of the plate."""
+    from openvat.core.hollow import Hole, HollowState, LatticeParams
+    from openvat.core.project import FORMAT, load_project, read_thumbnail, save_project
+    from openvat.core.profiles import PrinterProfile, ResinProfile
+    scene = Scene()
+    obj = _mushroom()
+    obj.rotation[:] = [0, 0, 30]
+    obj.drop_to_plate()
+    scene.add(obj)
+    scene.support_settings.density = "high"
+    scene.auto_supports(obj)
+    twin = obj.clone()
+    twin.name = "twin"
+    twin.position[0] += 40
+    twin.visible = False
+    scene.objects.append(twin)
+    obj.holes = (Hole((1.0, 2.0, 3.0), (0.0, 0.0, -1.0), 2.5),)
+    obj.hollow = HollowState(1.5, LatticeParams(spacing=6.0))
+    obj.paint = np.zeros(len(obj.mesh.faces), np.int8)
+    obj.paint[[0, 5, 9]] = [1, 2, 1]
+    printer, resin = PrinterProfile(name="My printer"), ResinProfile(name="My resin")
+    path = tmp_path / "plate.openvat"
+    save_project(path, scene, printer, resin, b"PNG!")
+    assert not (tmp_path / "plate.openvat.part").exists()
+    proj = load_project(path)
+    a, b = proj.objects
+    assert (a.name, b.name, b.visible) == ("mushroom", "twin", False) and a.mesh is b.mesh
+    assert np.array_equal(a.mesh.faces, obj.mesh.faces) and np.allclose(a.mesh.vertices, obj.mesh.vertices)
+    assert np.allclose(a.matrix(), obj.matrix()) and np.allclose(b.matrix(), twin.matrix())
+    assert a.holes == obj.holes and a.hollow == obj.hollow and np.array_equal(a.paint, obj.paint) and b.paint is None
+    assert a.id != obj.id and {s.owner_id for s in proj.supports} == {a.id}
+    assert len(proj.supports) == len(scene.supports) > 10
+    assert [s.geometry_key() for s in proj.supports] == [s.geometry_key() for s in scene.supports]
+    assert [s.status for s in proj.supports] == [s.status for s in scene.supports]
+    assert proj.support_settings == scene.support_settings and proj.hollow_settings == scene.hollow_settings
+    assert proj.printer == printer and proj.resin == resin and read_thumbnail(path) == b"PNG!"
+    other = Scene()                                       # the same support meshes come out
+    other.replace_all(proj.objects, proj.supports, proj.support_settings, proj.hollow_settings)
+    assert sum(len(m.faces) for m in other.support_meshes()) == sum(len(m.faces) for m in scene.support_meshes())
+
+    with zipfile.ZipFile(path) as z:                      # a newer file, a file that is no project
+        files = {n: z.read(n) for n in z.namelist()}
+    data = json.loads(files["project.json"])
+    data["format"] = FORMAT + 1
+    with zipfile.ZipFile(tmp_path / "new.openvat", "w") as z:
+        for n, raw in files.items():
+            z.writestr(n, json.dumps(data) if n == "project.json" else raw)
+    with pytest.raises(ValueError, match="newer"):
+        load_project(tmp_path / "new.openvat")
+    (tmp_path / "junk.openvat").write_text("not a zip")
+    with pytest.raises(ValueError, match="not an OpenVat project"):
+        load_project(tmp_path / "junk.openvat")
+    assert read_thumbnail(tmp_path / "junk.openvat") is None
+
+
+def test_scene_revision_follows_edits_and_undo():
+    """Unsaved changes = the revision moved on: every edit makes a new one,
+    undo and redo bring the old ones back, a new plate starts afresh."""
+    scene, obj = cube_scene()
+    saved = scene.revision
+    scene.push_undo()
+    obj.position[0] += 5
+    edited = scene.revision
+    assert edited != saved
+    assert scene.undo_stack.undo() and scene.revision == saved
+    assert scene.undo_stack.redo() and scene.revision == edited
+    scene.touch()
+    assert scene.revision not in (saved, edited)
+    scene.replace_all([], [])
+    assert not scene.objects and not scene.undo_stack.can_undo() and not scene.undo_stack.can_redo()
+
+
+def test_problems_on_the_plate():
+    from types import SimpleNamespace
+    from openvat.core.hollow import HollowState
+    from openvat.core.problems import ERROR, NOTE, WARNING, find_problems
+    from openvat.core.profiles import PrinterProfile, ResinProfile
+    printer = PrinterProfile(name="P", print_x=100, print_y=60, print_z=100)
+    scene = Scene()
+    assert find_problems(scene, printer, ResinProfile()) == []
+    a = MeshObject("a", trimesh.creation.box(extents=[10, 10, 10]))
+    a.drop_to_plate()
+    b = a.clone()
+    b.name = "b"
+    b.position[0] += 6                                    # 4 mm overlap with a
+    c = MeshObject("c", trimesh.creation.box(extents=[10, 10, 10]))
+    c.drop_to_plate()
+    c.position += [30, 0, 4]                              # floating, no supports
+    far = a.clone()
+    far.name = "far"
+    far.position[0] += 70                                 # off the plate
+    far.hollow = HollowState(2.0)                         # hollow without a drain hole
+    leaky = MeshObject("leaky", trimesh.Trimesh(*_open_box()))
+    leaky.drop_to_plate()
+    leaky.position[1] -= 20
+    scene.objects += [a, b, c, far, leaky]
+    found = find_problems(scene, printer, None, None, "P: cannot write")
+    kinds = [(p.kind, p.object_id) for p in found]
+    assert ("outside", far.id) in kinds and ("floating", c.id) in kinds and ("overlap", a.id) in kinds
+    assert ("trapped", far.id) in kinds and ("open_mesh", leaky.id) in kinds
+    assert ("no_resin", None) in kinds and found[-1].level == NOTE and found[-1].text == "P: cannot write"
+    levels = [p.level for p in found]
+    assert levels == sorted(levels, key=[ERROR, WARNING, NOTE].index)
+    assert not any(p.kind == "overlap" and p.object_id in (c.id, leaky.id) for p in found)
+    c.position[2] -= 4                                    # on the plate now: no longer floating
+    assert not any(p.kind == "floating" for p in find_problems(scene, printer, ResinProfile()))
+    # what the last Automatic run and the slicer found
+    scene.supports = [Support(tip=np.zeros(3), owner_id=a.id)]
+    weak = SimpleNamespace(ok=False, text=lambda: "release force up to 9 N ...")
+    scene.support_report = {"skipped": 2, "release": [weak]}
+    result = SimpleNamespace(islands=[SimpleNamespace(first=4, last=9)])
+    found = find_problems(scene, printer, ResinProfile(), result)
+    island = next(p for p in found if p.kind == "island")
+    assert island.layer == 4 and "layers 4–9" in island.text and island.level == ERROR
+    assert any(p.kind == "skipped" and "2 spots" in p.text for p in found)
+    assert any(p.kind == "release" and p.text.startswith("Release force up to 9 N") for p in found)
+
+
+def _open_box():
+    box = trimesh.creation.box(extents=[8, 8, 8])
+    return box.vertices, box.faces[:-2]                 # one side missing: not watertight
+
+
+def test_home_page_projects_and_unsaved_star(tmp_path):
+    """OpenVat starts on the home page; a model opened shows under Recent
+    files, a saved project under Recent projects (with its picture) and
+    opens again from there; the title has a * while there are unsaved
+    changes; closing asks to save only when that is turned on."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    model = tmp_path / "cube.stl"
+    trimesh.creation.box(extents=[15, 15, 15]).export(model)
+    project = tmp_path / "plate.openvat"
+    code = f'''
+import time
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication([])
+from openvat.core.profiles import ProfileStore
+from openvat.core.project import read_thumbnail
+from openvat.ui import main_window as mw
+st = ProfileStore({str(tmp_path / "home")!r}); st.printers.append(st.printer_presets[0])
+w = mw.MainWindow(st); w.resize(1100, 700); w.show()
+def pump(n=10):
+    for _ in range(n): app.processEvents(); time.sleep(0.01)
+pump()
+out = [w.pages.currentIndex() == mw.PAGE_HOME, w.isWindowModified()]
+w.load_model({str(model)!r}); pump()
+out += [w.pages.currentIndex() == mw.PAGE_3D, w.isWindowModified(), w.windowTitle().startswith("Untitled[*]")]
+mw.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: ({str(project)!r}, ""))
+out += [w.save_project(), w.isWindowModified(), w.windowTitle().startswith("plate[*]"),
+        (read_thumbnail({str(project)!r}) or b"")[:4] == b"\\x89PNG"]
+w.show_home(); pump()
+out += [[c.path for c in w.home_page.files_row.cards] == [{str(model.resolve())!r}],
+        [c.path for c in w.home_page.projects_row.cards] == [{str(project.resolve())!r}]]
+w.new_project(); pump()
+out += [len(w.scene.objects), w.project_path]
+card = w.home_page.projects_row.cards[0]
+card.clicked.emit(card.path); pump()
+out += [len(w.scene.objects), w.isWindowModified(), w.pages.currentIndex() == mw.PAGE_3D]
+w.scene.push_undo(); w.scene.objects[0].position[0] += 3; w.scene.changed()
+asked = []
+QMessageBox.exec = lambda self: (asked.append(self.text()), QMessageBox.Cancel)[1]
+ev = QCloseEvent(); w.closeEvent(ev)
+out += [w.isWindowModified(), ev.isAccepted(), len(asked)]          # the warning is off by default
+st.settings["ask_save_on_close"] = True
+ev = QCloseEvent(); w.closeEvent(ev)
+out += [ev.isAccepted(), asked[-1:]]
+w.show_home(); pump()
+tiles = w.home_page.tiles
+out += [tiles["models"].value.text(), tiles["projects"].value.text(), w.home_page.prepare_btn.text()]
+w.home_page.prepare_btn.click()
+out += [w.pages.currentIndex() == mw.PAGE_3D]
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[:5] == [True, False, True, True, True]
+    assert out[5:9] == [True, False, True, True]
+    assert out[9:11] == [True, True]
+    assert out[11:13] == [0, None]
+    assert out[13:16] == [1, False, True]
+    assert out[16:19] == [True, True, 0]
+    assert out[19:21] == [False, ["Save the changes to plate before closing?"]]
+    assert out[21:] == ["1", "1", "Prepare →", True]          # the totals; the way on at the bottom right
+
+
+def test_running_totals():
+    from openvat.core import stats
+    settings = {"stats": {"slices": "junk", "layers": -5}}
+    assert stats.totals(settings)["slices"] == 0 and stats.totals(settings)["layers"] == 0
+    stats.add(settings, slices=2, layers=640, resin_ml=12.34, print_s=5400)
+    stats.add(settings, slices=1, exports=1, usb=1, supports=37)
+    t = stats.totals(settings)
+    assert (t["slices"], t["layers"], t["exports"], t["usb"], t["supports"]) == (3, 640, 1, 1, 37)
+    assert [stats.shown(k, t[k]) for k in ("slices", "resin_ml", "print_s")] == ["3", "12.3 mL", "1.5 h"]
+    assert stats.shown("layers", 12345) == "12,345" and stats.shown("resin_ml", 1534) == "1.53 L"
+    assert stats.shown("print_s", 1800) == "30 min" and stats.shown("print_s", 400 * 3600) == "400 h"
