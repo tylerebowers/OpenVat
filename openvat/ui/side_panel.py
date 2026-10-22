@@ -1,13 +1,16 @@
-"""Right-hand panel: printer list, resin list and object list, each in a
-collapsible / resizable section with a summary in its header."""
+"""Right-hand panel: printer list, resin list, object list and the view
+options (build plate, see-through models, section view), each in a
+collapsible (the lists also resizable) card with a summary in its header."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-                               QPushButton, QLabel, QMessageBox)
+                               QPushButton, QLabel, QMessageBox, QGridLayout, QCheckBox, QSlider,
+                               QDoubleSpinBox, QButtonGroup, QFrame)
 
 from ..core.profiles import ProfileStore, PrinterProfile, ResinProfile
 from ..core.scene import Scene
@@ -143,9 +146,175 @@ def add_first_printer(store: ProfileStore, parent=None) -> bool:
     return True
 
 
+class SectionControls(QWidget):
+    """The section view: cut the 3D view at a plane across X, Y or Z, at a
+    distance along that axis, showing one side of it or (Flip) the other."""
+    changed = Signal(object)                      # (axis, position, flip), or None when off
+
+    STEPS = 1000                                  # slider resolution over the scene's extent
+
+    def __init__(self, scene: Scene, parent=None):
+        super().__init__(parent)
+        self.scene = scene
+        self.lo, self.hi = 0.0, 100.0             # the scene's extent on the chosen axis
+        self._sync = False
+        g = QGridLayout(self)
+        g.setContentsMargins(0, 0, 0, 0)
+        self.enable = QCheckBox("Cut the view")
+        self.enable.setToolTip("Show the models and supports cut open at a plane")
+        g.addWidget(self.enable, 0, 0, 1, 4)
+        self.axes = QButtonGroup(self)
+        for i, name in enumerate("XYZ"):
+            b = QPushButton(name)
+            b.setCheckable(True)
+            b.setToolTip(f"Cut across the {name} axis")
+            self.axes.addButton(b, i)
+            g.addWidget(b, 1, i)
+        self.axes.button(2).setChecked(True)
+        self.flip = QPushButton("Flip")
+        self.flip.setCheckable(True)
+        self.flip.setToolTip("Show the other side of the cut")
+        g.addWidget(self.flip, 1, 3)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, self.STEPS)
+        self.slider.setValue(self.STEPS // 2)
+        self.spin = QDoubleSpinBox()
+        self.spin.setDecimals(2)
+        self.spin.setSingleStep(0.1)
+        self.spin.setSuffix(" mm")
+        self.spin.setKeyboardTracking(False)
+        g.addWidget(self.slider, 2, 0, 1, 2)
+        g.addWidget(self.spin, 2, 2, 1, 2)
+        self.enable.toggled.connect(self._enabled)
+        self.axes.idToggled.connect(lambda _i, on: on and self._axis_changed())
+        self.flip.toggled.connect(lambda _on: self._emit())
+        self.slider.valueChanged.connect(self._slid)
+        self.spin.valueChanged.connect(self._typed)
+        self._enabled(False)
+        scene.listeners.append(self.refresh_range)
+        self.refresh_range()
+
+    # ------------------------------------------------------------ state
+    def axis(self) -> int:
+        return max(self.axes.checkedId(), 0)
+
+    def state(self):
+        if not self.enable.isChecked():
+            return None
+        return self.axis(), self.spin.value(), self.flip.isChecked()
+
+    def summary(self) -> str:
+        st = self.state()
+        if st is None:
+            return "off"
+        axis, pos, flip = st
+        return f"{'XYZ'[axis]} {'≥' if flip else '≤'} {pos:.2f} mm"
+
+    # ------------------------------------------------------------ range
+    def _extent(self, axis: int) -> tuple[float, float]:
+        """The scene's extent on an axis: its models and their supports."""
+        boxes = [o.world_bounds() for o in self.scene.objects if o.visible]
+        if self.scene.supports:
+            boxes += [m.bounds for m in self.scene.support_meshes() if len(m.faces)]
+        if not boxes:
+            return 0.0, 100.0
+        b = np.array(boxes)
+        lo, hi = float(b[:, 0, axis].min()), float(b[:, 1, axis].max())
+        return (lo, hi) if hi - lo > 1e-6 else (lo - 1.0, hi + 1.0)
+
+    def refresh_range(self) -> None:
+        """The models moved or changed: the slider spans their new extent and
+        the cut stays where it was (inside that extent)."""
+        if not self.enable.isChecked():
+            return
+        pos = self.spin.value()
+        self._set_range(*self._extent(self.axis()), pos)
+
+    def _set_range(self, lo: float, hi: float, pos: float) -> None:
+        self.lo, self.hi = lo, hi
+        self._sync = True
+        self.spin.setRange(lo, hi)
+        pos = min(max(pos, lo), hi)
+        self.spin.setValue(pos)
+        self.slider.setValue(round((pos - lo) / (hi - lo) * self.STEPS))
+        self._sync = False
+
+    # ------------------------------------------------------------ input
+    def _enabled(self, on: bool) -> None:
+        for w in (*self.axes.buttons(), self.flip, self.slider, self.spin):
+            w.setEnabled(on)
+        if on:
+            lo, hi = self._extent(self.axis())
+            self._set_range(lo, hi, (lo + hi) / 2)
+        self._emit()
+
+    def _axis_changed(self) -> None:
+        if self.enable.isChecked():
+            lo, hi = self._extent(self.axis())
+            self._set_range(lo, hi, (lo + hi) / 2)       # a new axis starts in the middle
+        self._emit()
+
+    def _slid(self, value: int) -> None:
+        if self._sync:
+            return
+        self._sync = True
+        self.spin.setValue(self.lo + (self.hi - self.lo) * value / self.STEPS)
+        self._sync = False
+        self._emit()
+
+    def _typed(self, pos: float) -> None:
+        if self._sync:
+            return
+        self._sync = True
+        self.slider.setValue(round((pos - self.lo) / max(self.hi - self.lo, 1e-9) * self.STEPS))
+        self._sync = False
+        self._emit()
+
+    def _emit(self) -> None:
+        self.changed.emit(self.state())
+
+
+class ViewControls(QWidget):
+    """The View card: show the build plate, see-through models, and the
+    section view (SectionControls) under them."""
+    plate_toggled = Signal(bool)
+    see_through_toggled = Signal(bool)
+
+    def __init__(self, scene: Scene, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.plate = QCheckBox("Build plate")
+        self.plate.setChecked(True)
+        self.plate.setToolTip("Show the build plate and the build volume (also in View menu)")
+        self.see_through = QCheckBox("Semi-transparent models")
+        self.see_through.setToolTip("See supports and holes through the models (also in View menu)")
+        self.plate.toggled.connect(self.plate_toggled)
+        self.see_through.toggled.connect(self.see_through_toggled)
+        lay.addWidget(self.plate)
+        lay.addWidget(self.see_through)
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        lay.addWidget(line)
+        self.section = SectionControls(scene)
+        lay.addWidget(self.section)
+
+    def summary(self) -> str:
+        """'plate · see-through · cut Z ≤ 12.00 mm' (what is on)."""
+        parts = ["plate" if self.plate.isChecked() else "no plate"]
+        if self.see_through.isChecked():
+            parts.append("see-through")
+        cut = self.section.state()
+        if cut is not None:
+            parts.append("cut " + self.section.summary())
+        return " · ".join(parts)
+
+
 class SidePanel(SectionColumn):
     printer_changed = Signal(object)
     resin_changed = Signal(object)
+    section_changed = Signal(object)             # see SectionControls
 
     def __init__(self, store: ProfileStore, scene: Scene, parent=None):
         super().__init__(width=260, parent=parent)
@@ -178,6 +347,13 @@ class SidePanel(SectionColumn):
         self.info.setWordWrap(True)
         ol.addWidget(self.info)
         self.add("objects", "Objects", objects, stretch=1)
+        self.view = ViewControls(scene)
+        self.section = self.view.section
+        self.add("view", "View", self.view, expanded=False)
+        self.section.changed.connect(self._section_changed)
+        self.view.plate_toggled.connect(lambda _on: self._view_summary())
+        self.view.see_through_toggled.connect(lambda _on: self._view_summary())
+        self._view_summary()
         self.finish()
 
         scene.listeners.append(self.refresh_objects)
@@ -233,6 +409,13 @@ class SidePanel(SectionColumn):
         self.printers.set_items(self.store.printers, self._index_of(self.store.printers, self.store.default_printer()))
         self._bind_resins()
         self._profiles_changed(save=False)
+
+    def _section_changed(self, state) -> None:
+        self._view_summary()
+        self.section_changed.emit(state)
+
+    def _view_summary(self) -> None:
+        self.sections["view"].set_summary(self.view.summary())
 
     # ------------------------------------------------------------ objects
     def refresh_objects(self) -> None:

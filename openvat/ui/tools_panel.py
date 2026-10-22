@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QDoubleSpinBox
 from ..core.scene import Scene
 from ..core.hollow import HollowState, hole_from_world, hole_world, describe
 from ..core.orient import DOWN, best_face, laid_on
+from ..core.paint import NONE, ENFORCE, BLOCK, overhang_faces, painted_with, paint_of
 from ..core.profiles import PrinterProfile
 from ..core.placement import manual_support
 from ..core.supports import DENSITY_SPACING
@@ -39,6 +40,8 @@ class ToolsPanel(SectionColumn):
     move_tool_toggled = Signal(bool)    # move arrows on the selected model
     rotate_tool_toggled = Signal(bool)  # rotate rings on the selected model
     lay_face_toggled = Signal(bool)     # highlight the faces the model can lie on
+    paint_mode_toggled = Signal(bool)   # dragging on the model paints where supports go / don't
+    paint_options_changed = Signal()    # paint value or brush size
 
     def __init__(self, scene: Scene, parent=None):
         super().__init__(width=240, parent=parent)
@@ -50,6 +53,7 @@ class ToolsPanel(SectionColumn):
         self.add("scale", "Scale", self._build_scale())
         self.add("edit", "Edit", self._build_edit())
         self.add("supports", "Supports", self._build_supports())
+        self.add("paint", "Support paint", self._build_paint(), expanded=False)
         self.add("hollow", "Hollowing", self._build_hollowing())
         self.move_eye = _eye_button("Show move arrows on the selected model:\n"
                                     "drag one to move the model along that axis (Ctrl: whole mm)")
@@ -60,7 +64,7 @@ class ToolsPanel(SectionColumn):
         self.move_eye.toggled.connect(self.move_tool_toggled)
         self.rotate_eye.toggled.connect(self.rotate_tool_toggled)
         self.set_pages([("Manipulation", ["position", "rotation", "scale", "edit"]),
-                        ("Preparation", ["supports", "hollow"])])
+                        ("Preparation", ["supports", "paint", "hollow"])])
         self.finish()
 
         scene.listeners.append(self.refresh)
@@ -241,6 +245,68 @@ class ToolsPanel(SectionColumn):
         g.addWidget(self.support_info, 5, 0, 1, 2)
         return w
 
+    def _build_paint(self) -> QWidget:
+        """Paint where supports must go (blue) and where they must not (red);
+        Automatic follows it."""
+        w = QWidget(); g = QGridLayout(w); g.setContentsMargins(0, 0, 0, 0)
+        self.paint_btn = QPushButton("Paint")
+        self.paint_btn.setCheckable(True)
+        self.paint_btn.setToolTip("Drag on the model to paint (its faces within the brush)")
+        self.paint_btn.toggled.connect(self.paint_mode_toggled)
+        self.paint_value = QComboBox()
+        self.paint_value.addItem("Supports here", ENFORCE)
+        self.paint_value.addItem("No supports", BLOCK)
+        self.paint_value.addItem("Erase", NONE)
+        self.paint_value.currentIndexChanged.connect(lambda _i: self.paint_options_changed.emit())
+        g.addWidget(self.paint_btn, 0, 0); g.addWidget(self.paint_value, 0, 1)
+        g.addWidget(QLabel("Brush"), 1, 0)
+        self.brush = self._spin(0.2, 50, 0.5)
+        self.brush.setValue(2.0)
+        self.brush.setSuffix(" mm")
+        self.brush.setToolTip("Brush radius: faces whose center lies this close to the cursor are painted")
+        self.brush.valueChanged.connect(lambda _v: self.paint_options_changed.emit())
+        g.addWidget(self.brush, 1, 1)
+        self.overhang_btn = QPushButton("Paint overhangs")
+        self.overhang_btn.setToolTip("Paint every face that faces down steeper than this angle from vertical\n"
+                                     "(a wall: 0°, a flat ceiling: 90°) with the paint chosen above")
+        self.overhang_btn.clicked.connect(self._paint_overhangs)
+        self.overhang_angle = self._spin(0, 89, 5)
+        self.overhang_angle.setDecimals(0)
+        self.overhang_angle.setValue(45)
+        self.overhang_angle.setSuffix(" °")
+        g.addWidget(self.overhang_btn, 2, 0); g.addWidget(self.overhang_angle, 2, 1)
+        self.clear_paint_btn = QPushButton("Clear paint")
+        self.clear_paint_btn.clicked.connect(self._clear_paint)
+        g.addWidget(self.clear_paint_btn, 3, 0, 1, 2)
+        hint = QLabel("<i>Blue: supports go here · red: no supports.  Automatic follows the paint.</i>")
+        hint.setWordWrap(True)
+        g.addWidget(hint, 4, 0, 1, 2)
+        return w
+
+    def paint_settings(self) -> dict:
+        """The paint value and brush radius (mm), as keywords of Viewport3D.set_paint."""
+        return {"value": int(self.paint_value.currentData()), "radius": float(self.brush.value())}
+
+    def _paint_overhangs(self) -> None:
+        obj = self.scene.selected
+        if obj is None:
+            return
+        mask = overhang_faces(obj, self.overhang_angle.value())
+        if not mask.any():
+            QMessageBox.information(self, "Support paint", "No face of this model faces down that steeply.")
+            return
+        self.scene.push_undo()
+        obj.paint = painted_with(obj, mask, self.paint_settings()["value"])
+        self.scene.changed()
+
+    def _clear_paint(self) -> None:
+        obj = self.scene.selected
+        if obj is None or obj.paint is None:
+            return
+        self.scene.push_undo()
+        obj.paint = None
+        self.scene.changed()
+
     # ------------------------------------------------------------ refresh
     def refresh(self) -> None:
         """Pull values from the selected object into the controls and the
@@ -249,8 +315,15 @@ class ToolsPanel(SectionColumn):
         self._updating = True
         enabled = obj is not None
         for w in (*self.pos_spins, *self.rot_spins, *self.scale_spins, *self.mm_spins, self.lay_btn,
-                  self.best_btn, self.clones_btn):
+                  self.best_btn, self.clones_btn, self.overhang_btn):
             w.setEnabled(enabled)
+        painted = paint_of(obj) if obj is not None else None
+        self.clear_paint_btn.setEnabled(painted is not None)
+        if painted is None:
+            self.sections["paint"].set_summary("no paint" if obj is not None else "no selection")
+        else:
+            n_on, n_off = int((painted == ENFORCE).sum()), int((painted == BLOCK).sum())
+            self.sections["paint"].set_summary(f"{n_on} faces here · {n_off} blocked")
         msg = self.lay_message
         shown = msg is not None and msg[0] is obj and np.allclose(msg[1], obj.rotation)
         self.lay_info.setText(msg[2] if shown else "")
@@ -571,7 +644,10 @@ class ToolsPanel(SectionColumn):
         finally:
             QApplication.restoreOverrideCursor()
         report = self.scene.support_report
-        if n == 0 and not report.get("skipped"):
+        if n == 0 and report.get("blocked"):
+            QMessageBox.information(self, "Automatic supports",
+                                    "No supports: every spot that needs one is painted \"No supports\".")
+        elif n == 0 and not report.get("skipped"):
             QMessageBox.information(self, "Automatic supports",
                                     "Nothing needs support with the current settings: no islands and "
                                     "no overhangs steeper than the overhang angle.")
@@ -628,6 +704,16 @@ def _report_text(report: dict) -> str:
     if skipped:
         text += (f" · {skipped} spot{'s' if skipped != 1 else ''} skipped (no path to the plate "
                  f"and no room for a nook support)")
+    blocked = report.get("blocked", 0)
+    if blocked:
+        text += f" · {blocked} spot{'s' if blocked != 1 else ''} left out (painted: no supports)"
+    added = report.get("release_added", 0)
+    if added:
+        text += f" · {added} added to hold against the release force"
+    checks = [c for c in report.get("release", []) if not c.on_plate]
+    if checks:
+        worst = min(checks, key=lambda c: c.ratio)
+        text += "\n" + ("Release force: " if worst.ok else "⚠ Release force: ") + worst.text()
     return text
 
 

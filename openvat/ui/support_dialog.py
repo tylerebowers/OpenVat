@@ -64,6 +64,10 @@ GROUPS = {
         ("contact_max", "Automatic contact diameter: max", lambda: _double(0.1, 5, 0.05, 2, " mm")),
         ("contact_scale_height", "…reached at support height", lambda: _double(1, 300, 5, 1, " mm")),
     ],
+    "Release force": [
+        ("release_force", "Force peeling a layer off the film (0 = off)", lambda: _double(0, 50, 0.25, 2, " N/cm²")),
+        ("tip_strength", "Force a tip holds per mm² of contact", lambda: _double(0.1, 100, 0.25, 2, " N/mm²")),
+    ],
 }
 
 
@@ -100,12 +104,16 @@ class SupportSettingsDialog(QDialog):
                       "height and finds where supports are needed - every island (a region that starts in "
                       "mid-air, supported in the very layer it starts, and anchored by several supports "
                       "if it starts as a corner or tip), then overhangs steeper than the overhang angle, "
-                      "spaced by the density, except short bridges between two walls. Then it decides each "
+                      "spaced by the density, except short bridges between two walls - and follows the paint: "
+                      "painted faces facing down get supports, blocked ones none. Then it decides each "
                       "support's kind - a small nook straight across a narrow gap, a plate support when a "
                       "pillar can reach the build plate without touching the part, otherwise a nook "
                       "standing on the part - and routes the plate supports around the part. After "
-                      "slicing, the layer view marks any region the print would not hold in red. Re-run "
-                      "Automatic after changing these.</i>")
+                      "slicing, the layer view marks any region the print would not hold in red. Release force: "
+                      "each layer is peeled off the vat film with this force per cm² of its area, and the "
+                      "part hangs on the tips of its supports below that layer; where they would not hold, "
+                      "Automatic adds supports below it, closer together. Re-run Automatic after changing "
+                      "these.</i>")
         note.setWordWrap(True)
         root.addWidget(note)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)

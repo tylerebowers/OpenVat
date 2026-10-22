@@ -35,14 +35,16 @@ from PySide6.QtWidgets import QWidget, QApplication
 from ..core.hollow import hole_world, hole_depth, lattice_segments, cavity_clip, tubes
 from ..core.mesh import MeshObject
 from ..core.orient import DOWN, flat_faces_of, rotated_about
+from ..core.paint import ENFORCE, BLOCK, brushed
 from ..core.profiles import PrinterProfile
-from ..core.raycast import ray_mesh_closest, ray_mesh_first
+from ..core.raycast import ray_mesh_closest, ray_mesh_first, ray_mesh_hits
 from ..core.scene import Scene
 from ..core.placement import snap_support
 from ..core.supports import Support
 from .camera import OrbitCamera, ray_plane_z
 from . import gizmos
 from .glplatform import default_surface_format  # noqa: F401  (re-exported)
+from .lighting import Lighting
 from .theme_colors import DEFAULT_THEME_COLORS, DEFAULT_COLORS  # noqa: F401
 
 VERT_SHADER = """
@@ -51,12 +53,15 @@ layout(location = 0) in vec3 in_pos;
 layout(location = 1) in vec3 in_normal;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
+uniform vec4 u_clip;          // section view: only where dot(u_clip, (world, 1)) >= 0 is drawn
 out vec3 v_normal;
 out vec3 v_world;
+out float gl_ClipDistance[1];
 void main() {
     gl_Position = u_mvp * vec4(in_pos, 1.0);
     v_normal = mat3(u_model) * in_normal;
     v_world = (u_model * vec4(in_pos, 1.0)).xyz;
+    gl_ClipDistance[0] = dot(u_clip, vec4(v_world, 1.0));
 }
 """
 
@@ -67,23 +72,28 @@ in vec3 v_world;
 uniform vec4 u_color;
 uniform vec3 u_eye;
 uniform int u_lit;
+uniform int u_cap;            // section view: what is seen from behind is the cut face
+uniform vec3 u_key;           // toward the key light (see lighting.py)
+uniform vec3 u_fill;          // toward the fill light
+uniform vec4 u_light;         // ambient, key, fill, shine
+uniform float u_gloss;
 out vec4 frag;
 void main() {
+    if (u_cap == 1 && !gl_FrontFacing) { frag = vec4(u_color.rgb * 0.55, u_color.a); return; }
     if (u_lit == 0) { frag = u_color; return; }
     vec3 n = normalize(v_normal);
     vec3 view = normalize(u_eye - v_world);
     if (dot(n, view) < 0.0) n = -n;           // light back faces too
-    vec3 l1 = normalize(vec3(0.4, -0.6, 1.0));
-    vec3 l2 = normalize(vec3(-0.6, 0.5, 0.3));
-    float diff = 0.30 + 0.55 * max(dot(n, l1), 0.0) + 0.25 * max(dot(n, l2), 0.0);
-    vec3 h = normalize(l1 + view);
-    float spec = pow(max(dot(n, h), 0.0), 32.0) * 0.15;
+    float diff = u_light.x + u_light.y * max(dot(n, u_key), 0.0) + u_light.z * max(dot(n, u_fill), 0.0);
+    vec3 h = normalize(u_key + view);
+    float spec = pow(max(dot(n, h), 0.0), u_gloss) * u_light.w;
     frag = vec4(u_color.rgb * diff + spec, u_color.a);
 }
 """
 
 COLOR_OUTSIDE = (0.90, 0.30, 0.30, 1.0)
 COLOR_HOLE = (0.93, 0.36, 0.26, 1.0)       # drain holes
+PAINT_COLORS = {ENFORCE: (0.24, 0.52, 1.0, 0.70), BLOCK: (0.95, 0.27, 0.27, 0.70)}   # support paint
 XRAY_ALPHA = 0.28                          # hollow models with "Show inside"
 SEE_THROUGH_ALPHA = 0.5                    # View -> Semi-transparent models
 HOLE_MARK_OUT = 0.3                        # mm a hole marker stands out of the surface
@@ -254,6 +264,7 @@ class Viewport3D(QOpenGLWidget):
         self.cull_back_faces = False            # skip faces pointing away (closed, outward-wound meshes)
         self.camera = OrbitCamera()
         self.colors = {k: hex_to_rgba(v) for k, v in DEFAULT_COLORS.items()}
+        self.lighting = Lighting()              # Edit -> Preferences -> Lighting
         self.printer: PrinterProfile = PrinterProfile()
         self.add_support_mode = False
         self.add_hole_mode = False              # clicks on a model place / remove drain holes
@@ -266,9 +277,18 @@ class Viewport3D(QOpenGLWidget):
         self._gizmo_buffers: tuple[GLBuffer, GLBuffer] | None = None    # unit arrow, unit ring
         self._flat_buffers: dict[int, tuple] = {}   # id(mesh) -> (mesh, [GLBuffer]) of its flat faces
         self.show_plate = True                  # View -> Build plate (the volume's outline always shows)
+        self.section: tuple[int, float, bool] | None = None    # section view: (axis, position, flip)
         self.see_through = False                # View -> Semi-transparent models
         self._hover = None                      # ("move" | "rotate", axis) or ("face", index) under the mouse
         self._gizmo_drag: dict | None = None    # while an arrow or ring is dragged
+        self.paint_mode = False                 # dragging on a model paints support paint
+        self.paint_value = ENFORCE
+        self.brush_radius = 2.0                 # mm
+        self._stroke: MeshObject | None = None  # the model being painted (mouse down)
+        self._stroke_changed = False
+        self._brush_at: tuple | None = None     # (point, normal) under the mouse in paint mode
+        self._paint_buffers: dict[int, tuple] = {}   # obj id -> (paint, mesh, {value: GLBuffer})
+        self._brush_ring: GLBuffer | None = None
         self.setMinimumSize(400, 300)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(False)
@@ -324,6 +344,10 @@ class Viewport3D(QOpenGLWidget):
                     pass                                   # a bad value keeps the old color
         self.update()
 
+    def set_lighting(self, lighting: Lighting) -> None:
+        self.lighting = lighting.clamped()
+        self.update()
+
     def _plate_colors(self) -> tuple[tuple, tuple]:
         """See-through plate fill, and grid lines a step lighter (dark plate)
         or darker (light plate) than it."""
@@ -349,7 +373,8 @@ class Viewport3D(QOpenGLWidget):
         if not GL_INFO:
             _read_gl_info()
         self._program = build_program(VERT_SHADER, FRAG_SHADER)
-        for name in ("u_mvp", "u_model", "u_color", "u_eye", "u_lit"):
+        for name in ("u_mvp", "u_model", "u_color", "u_eye", "u_lit", "u_clip", "u_cap",
+                     "u_key", "u_fill", "u_light", "u_gloss"):
             self._uniforms[name] = GL.glGetUniformLocation(self._program, name)
         self.gl_started.emit()
 
@@ -383,6 +408,14 @@ class Viewport3D(QOpenGLWidget):
         GL.glUseProgram(self._program)
         vp = self.camera.projection_matrix() @ self.camera.view_matrix()
         GL.glUniform3fv(self._uniforms["u_eye"], 1, self.camera.position().astype(np.float32))
+        GL.glUniform4f(self._uniforms["u_clip"], 0.0, 0.0, 0.0, 1.0)     # nothing cut (see _section_on)
+        GL.glUniform1i(self._uniforms["u_cap"], 0)
+        light = self.lighting
+        key, fill = light.directions(self.camera.yaw)
+        GL.glUniform3fv(self._uniforms["u_key"], 1, key)
+        GL.glUniform3fv(self._uniforms["u_fill"], 1, fill)
+        GL.glUniform4f(self._uniforms["u_light"], light.ambient, light.key, light.fill, light.shine)
+        GL.glUniform1f(self._uniforms["u_gloss"], light.gloss)
 
         self._draw_contents(vp)
         # the plate goes last: it is see-through, so whatever is below it (seen
@@ -398,6 +431,7 @@ class Viewport3D(QOpenGLWidget):
         self._draw(self._volume, np.eye(4), vp, grid, lit=False)
         if self._gizmo_object() is not None and (self.show_move or self.show_rotate):
             self._draw_gizmos(vp)
+        self._draw_brush(vp)
         GL.glUseProgram(0)
         GL.glBindVertexArray(0)
         cube = self._overlay
@@ -412,6 +446,7 @@ class Viewport3D(QOpenGLWidget):
         models are drawn without their back faces (the GPU skips the half of
         the triangles that faces away)."""
         GL.glCullFace(GL.GL_BACK)
+        cut = self._section_on()
         fits = self.scene.fits(self.printer)
         see_through = []                          # see-through models (and hollow ones with "Show inside"): last
         for obj in self.scene.objects:
@@ -431,7 +466,7 @@ class Viewport3D(QOpenGLWidget):
                 see_through.append((glm, obj, (*color[:3], XRAY_ALPHA)))
                 continue
             model = obj.matrix()
-            if closed or self.cull_back_faces:
+            if (closed or self.cull_back_faces) and not cut:      # cut open: the inside shows
                 GL.glEnable(GL.GL_CULL_FACE)
                 GL.glFrontFace(GL.GL_CW if np.linalg.det(model[:3, :3]) < 0 else GL.GL_CCW)   # mirrored
             self._draw(glm, model, vp, color)
@@ -468,6 +503,10 @@ class Viewport3D(QOpenGLWidget):
         GL.glDisable(GL.GL_CULL_FACE)
         if self.lay_face_mode and self._gizmo_object() is not None:
             self._draw_flat_faces(self._gizmo_object(), vp)
+        if self.interactive and any(o.paint is not None for o in self.scene.objects):
+            self._draw_paint(vp)
+        if cut:
+            self._section_off()
 
     # ------------------------------------------------------------ gizmos
     def set_tools(self, move: bool | None = None, rotate: bool | None = None,
@@ -481,8 +520,104 @@ class Viewport3D(QOpenGLWidget):
         if lay_face is not None:
             self.lay_face_mode = lay_face
         self._hover = None
-        self.setMouseTracking(self.show_move or self.show_rotate or self.lay_face_mode)   # hover highlight
+        self._update_tracking()
         self.update()
+
+    def _update_tracking(self) -> None:
+        """Mouse moves without a button pressed matter while a tool shows (hover highlight)."""
+        self.setMouseTracking(self.show_move or self.show_rotate or self.lay_face_mode or self.paint_mode)
+
+    # ------------------------------------------------------------ support paint
+    def set_paint(self, on: bool | None = None, value: int | None = None, radius: float | None = None) -> None:
+        """Paint mode: dragging on a model paints ``value`` (see core/paint.py)
+        on its faces within ``radius`` mm of the cursor."""
+        if on is not None:
+            self.paint_mode = on
+            self._brush_at = None
+        if value is not None:
+            self.paint_value = int(value)
+        if radius is not None:
+            self.brush_radius = float(radius)
+        self._update_tracking()
+        self.update()
+
+    def _model_hit(self, pos: QPoint, only: MeshObject | None = None):
+        """(model, world point, outward world normal, face index) under the mouse, or None."""
+        origin, direction = self.camera.ray(pos.x(), pos.y(), self.width(), self.height())
+        best, best_t = None, np.inf
+        for obj in ([only] if only is not None else self.scene.objects):
+            if not obj.visible or not _ray_meets_box(origin, direction, obj.world_bounds(), best_t):
+                continue
+            inv = np.linalg.inv(obj.matrix())
+            o, d = inv[:3, :3] @ origin + inv[:3, 3], inv[:3, :3] @ direction
+            if self._section_plane() is not None:            # the first hit on the side that shows
+                t = self._first_shown(obj.mesh, o, d, origin, direction)
+                hit = None if t is None else ray_mesh_first(obj.mesh, o + d * (t - 1e-4), d)
+                if hit is not None:
+                    hit = (t, hit[1], hit[2])
+            else:
+                hit = ray_mesh_first(obj.mesh, o, d)
+            if hit is not None and hit[0] < best_t:
+                n = np.asarray(obj.mesh.face_normals[hit[2]], float) @ inv[:3, :3]
+                n = n / (np.linalg.norm(n) or 1.0)
+                best = (obj, origin + direction * hit[0], -n if n @ direction > 0 else n, hit[2])
+                best_t = hit[0]
+        return best
+
+    def _paint_at(self, point, face: int | None = None) -> None:
+        obj = self._stroke
+        new = brushed(obj, point, self.brush_radius, self.paint_value, face)
+        if new is not None:
+            obj.paint = new
+            self._stroke_changed = True
+
+    def _paint_buffers_for(self, obj: MeshObject) -> dict:
+        """GPU buffers of the object's painted faces, per paint value."""
+        entry = self._paint_buffers.get(obj.id)
+        if entry is None or entry[0] is not obj.paint or entry[1] is not obj.mesh:
+            if entry:
+                for b in entry[2].values():
+                    b.release()
+            mesh, bufs = obj.mesh, {}
+            if obj.paint is not None and len(obj.paint) == len(mesh.faces):
+                for value in PAINT_COLORS:
+                    f = np.flatnonzero(obj.paint == value)
+                    if len(f):
+                        bufs[value] = GLBuffer.triangles(mesh.vertices, mesh.faces[f], mesh.face_normals[f])
+            entry = self._paint_buffers[obj.id] = (obj.paint, mesh, bufs)
+        return entry[2]
+
+    def _draw_paint(self, vp: np.ndarray) -> None:
+        """Painted faces over the models (and the brush under the mouse)."""
+        GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+        GL.glPolygonOffset(-1.0, -4.0)
+        GL.glDepthFunc(GL.GL_LEQUAL)
+        GL.glDepthMask(GL.GL_FALSE)
+        live = {o.id for o in self.scene.objects if o.paint is not None}
+        for gone in [k for k in self._paint_buffers if k not in live]:     # deleted or cleared models
+            for b in self._paint_buffers.pop(gone)[2].values():
+                b.release()
+        for obj in self.scene.objects:
+            if obj.visible and obj.paint is not None:
+                for value, buf in self._paint_buffers_for(obj).items():
+                    self._draw(buf, obj.matrix(), vp, PAINT_COLORS[value], lit=False)
+        GL.glDepthMask(GL.GL_TRUE)
+        GL.glDepthFunc(GL.GL_LESS)
+        GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
+
+    def _draw_brush(self, vp: np.ndarray) -> None:
+        if not (self.paint_mode and self._brush_at is not None):
+            return
+        if self._brush_ring is None:
+            self._brush_ring = GLBuffer.from_trimesh(gizmos.ring_mesh(tube=0.05, segments=48, sides=6))
+        point, normal = self._brush_at
+        m = np.eye(4)
+        m[:3, :3] = trimesh.geometry.align_vectors([0, 0, 1], normal)[:3, :3] * self.brush_radius
+        m[:3, 3] = point + normal * 0.05
+        color = PAINT_COLORS.get(self.paint_value, (0.85, 0.85, 0.85, 1.0))
+        GL.glDisable(GL.GL_DEPTH_TEST)                    # always visible, on curved surfaces too
+        self._draw(self._brush_ring, m, vp, (*color[:3], 1.0), lit=False)
+        GL.glEnable(GL.GL_DEPTH_TEST)
 
     def set_view_options(self, plate: bool | None = None, see_through: bool | None = None) -> None:
         """View menu: show the build plate, draw the models semi-transparent."""
@@ -491,6 +626,43 @@ class Viewport3D(QOpenGLWidget):
         if see_through is not None:
             self.see_through = see_through
         self.update()
+
+    # ------------------------------------------------------------ section view
+    def set_section(self, axis: int | None, position: float = 0.0, flip: bool = False) -> None:
+        """Cut the view at ``position`` mm on world axis ``axis`` (0 = X, 1 = Y,
+        2 = Z; None: no cut).  The part below / left / in front of the cut
+        shows, or the other part with ``flip``; the cut faces of models and
+        supports show darker."""
+        self.section = None if axis is None else (int(axis), float(position), bool(flip))
+        self.update()
+
+    def _section_plane(self) -> tuple | None:
+        """(a, b, c, d): what shows has a*x + b*y + c*z + d >= 0."""
+        if self.section is None or not self.interactive:
+            return None
+        axis, pos, flip = self.section
+        n = [0.0, 0.0, 0.0]
+        n[axis] = 1.0 if flip else -1.0
+        return (*n, -pos if flip else pos)
+
+    def section_shows(self, point) -> bool:
+        plane = self._section_plane()
+        return plane is None or float(np.dot(plane[:3], point) + plane[3]) >= -1e-9
+
+    def _section_on(self) -> bool:
+        plane = self._section_plane()
+        if plane is None:
+            return False
+        GL.glUniform4f(self._uniforms["u_clip"], *plane)
+        GL.glUniform1i(self._uniforms["u_cap"], 1)
+        GL.glEnable(GL.GL_CLIP_DISTANCE0)
+        return True
+
+    def _section_off(self) -> None:
+        GL.glUseProgram(self._program)
+        GL.glDisable(GL.GL_CLIP_DISTANCE0)
+        GL.glUniform4f(self._uniforms["u_clip"], 0.0, 0.0, 0.0, 1.0)
+        GL.glUniform1i(self._uniforms["u_cap"], 0)
 
     def _gizmo_object(self) -> MeshObject | None:
         """The model the tools work on: the selected one, if shown."""
@@ -848,17 +1020,29 @@ class Viewport3D(QOpenGLWidget):
             m = self.scene.support_mesh(sup)
             if len(m.faces) == 0 or not _ray_meets_box(origin, direction, m.bounds, best_t):
                 continue
-            hit = _ray_hit(m, origin, direction)
-            if hit is not None and hit[0] < best_t:
-                best, best_t, best_pt = sup, hit[0], hit[1]
+            t = self._first_shown(m, origin, direction, origin, direction)
+            if t is not None and t < best_t:
+                best, best_t, best_pt = sup, t, origin + direction * t
         for obj in self.scene.objects:
             if not obj.visible or not _ray_meets_box(origin, direction, obj.world_bounds(), best_t):
                 continue
             inv = np.linalg.inv(obj.matrix())            # the ray in the model's own coordinates:
-            hit = _ray_hit(obj.mesh, inv[:3, :3] @ origin + inv[:3, 3], inv[:3, :3] @ direction)
-            if hit is not None and hit[0] < best_t:       # same t along it (an affine map keeps t)
-                best, best_t, best_pt = obj, hit[0], origin + direction * hit[0]
+            t = self._first_shown(obj.mesh, inv[:3, :3] @ origin + inv[:3, 3], inv[:3, :3] @ direction,
+                                  origin, direction)
+            if t is not None and t < best_t:              # same t along it (an affine map keeps t)
+                best, best_t, best_pt = obj, t, origin + direction * t
         return best, best_pt
+
+    def _first_shown(self, mesh, o, d, world_o, world_d) -> float | None:
+        """t of the first hit of the ray (o, d) on ``mesh`` whose world point
+        (world_o + t * world_d) is not cut away by the section view."""
+        if self._section_plane() is None:
+            hit = _ray_hit(mesh, o, d)
+            return None if hit is None else hit[0]
+        for t in ray_mesh_hits(mesh, o, d):
+            if self.section_shows(world_o + world_d * t):
+                return float(t)
+        return None
 
     # ------------------------------------------------------------ mouse
     def mousePressEvent(self, e: QMouseEvent) -> None:
@@ -871,6 +1055,19 @@ class Viewport3D(QOpenGLWidget):
             if handle is not None:                           # an arrow or ring of the selected model
                 self._start_gizmo_drag(handle, self._last_pos)
                 return
+            if self.paint_mode:                              # paint on the model under the mouse
+                hit = self._model_hit(self._last_pos)
+                if hit is not None:
+                    obj = hit[0]
+                    if obj is not self.scene.selected:
+                        self.scene.selected, self.scene.selected_support = obj, None
+                        self.selection_changed.emit()
+                    self.scene.push_undo()
+                    self._stroke, self._stroke_changed = obj, False
+                    self._paint_at(hit[1], hit[3])
+                    self._brush_at = (hit[1], hit[2])
+                    self.update()
+                    return
             face = self._face_at(self._last_pos)
             if face is not None:                             # lay the model on this face
                 self._hover = None
@@ -911,8 +1108,20 @@ class Viewport3D(QOpenGLWidget):
             self._last_pos = pos
             self._drag_gizmo(pos, e.modifiers())
             return
+        if self._stroke is not None and e.buttons() & Qt.LeftButton:
+            self._last_pos = pos
+            hit = self._model_hit(pos, only=self._stroke)
+            if hit is not None:
+                self._paint_at(hit[1], hit[3])
+                self._brush_at = (hit[1], hit[2])
+            self.update()
+            return
         if not e.buttons():                                  # hovering (tracking is on while tools show)
             self._last_pos = pos
+            if self.paint_mode:
+                hit = self._model_hit(pos)
+                self._brush_at = None if hit is None else (hit[1], hit[2])
+                self.update()
             self._update_hover(pos)
             return
         dx, dy = pos.x() - self._last_pos.x(), pos.y() - self._last_pos.y()
@@ -940,6 +1149,12 @@ class Viewport3D(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:
+        if self._stroke is not None:
+            changed = self._stroke_changed
+            self._stroke = None
+            if changed:
+                self.scene.changed()
+            return
         if self._gizmo_drag is not None:
             moved = self._gizmo_drag["moved"]
             self._gizmo_drag = None
@@ -955,9 +1170,6 @@ class Viewport3D(QOpenGLWidget):
     def wheelEvent(self, e: QWheelEvent) -> None:
         self.camera.zoom(e.angleDelta().y() / 120.0)
         self.update()
-
-    def mouseDoubleClickEvent(self, e: QMouseEvent) -> None:
-        self.fit_view()
 
     def _drag_support(self, sup: Support, xy) -> None:
         """Move a dragged support's contact to ``xy`` on the underside of its

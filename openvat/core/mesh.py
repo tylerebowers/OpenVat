@@ -32,6 +32,7 @@ class MeshObject:                       # would compare the numpy arrays and rai
     elevation: float = 0.0                    # Z lift: height of the lowest point when dropped
     holes: tuple = ()                         # drain holes (Hole), in source mesh coordinates
     hollow: HollowState | None = None         # set by Hollow (see core/hollow.py); None = solid
+    paint: np.ndarray | None = None           # support paint, a byte per source face (see core/paint.py)
     id: int = field(default_factory=lambda: next(_ids))
 
     # ---------------------------------------------------------------- transforms
@@ -112,7 +113,7 @@ class MeshObject:                       # would compare the numpy arrays and rai
         c = MeshObject(name=self.name, mesh=self.mesh,
                        position=self.position.copy(), rotation=self.rotation.copy(),
                        scale=self.scale.copy(), elevation=self.elevation,
-                       holes=self.holes, hollow=self.hollow)
+                       holes=self.holes, hollow=self.hollow, paint=self.paint)
         return c
 
     def repair(self) -> dict:
@@ -130,6 +131,7 @@ class MeshObject:                       # would compare the numpy arrays and rai
         trimesh.repair.fix_winding(m)
         after = dict(faces=len(m.faces), watertight=m.is_watertight)
         self.mesh = m
+        self.paint = None                    # the faces changed: the paint no longer fits
         return {"before": before, "after": after}
 
     # ---------------------------------------------------------------- info

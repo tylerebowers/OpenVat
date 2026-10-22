@@ -19,6 +19,10 @@ From bottom to top:
 Pillars can **split**: nearby contacts share one trunk that rises to a split
 bulb and branches out to each contact's pivot (``Support.trunk``).
 
+Every rod, foot, arm and tip is an octagon (``SIDES``) with the area of the
+round rod its diameter setting describes, and bulbs are icosahedra: few
+triangles to draw and slice, as strong as round ones.
+
 **nook** - a small pillar for caves and other pockets with no way down to
 the plate: it stands on the part itself (``Support.foot``).  A thin rod
 (``nook_diameter``) between two small contact cones
@@ -65,8 +69,8 @@ class SupportSettings:
     # -- pillars, branches and X braces
     pillar_diameter: float = 1.6        # also the diameter of branches, detours and bulbs
     branches: bool = True               # let pillars split to reach several contacts
-    branch_max_count: int = 3           # contacts per split pillar
-    branch_max_distance: float = 6.0    # contacts closer than this may share a pillar (mm)
+    branch_max_count: int = 5           # contacts per split pillar
+    branch_max_distance: float = 8.0    # contacts closer than this may share a pillar (mm)
     branch_angle: float = 30.0          # max tilt of branches and detours from vertical (deg)
     braces: bool = True                 # X-shaped braces between neighboring pillars
     brace_diameter: float = 0.8
@@ -96,6 +100,15 @@ class SupportSettings:
     contact_min: float = 0.4            # automatic tip diameter for short supports (mm)
     contact_max: float = 0.8            # automatic tip diameter for tall supports (mm)
     contact_scale_height: float = 30.0  # support height at which contact_max is reached (mm)
+
+    # -- release force: the supports must hold the part against the vat film
+    release_force: float = 2.0          # N per cm^2 of a layer peeled off the film (0 = don't check)
+    tip_strength: float = 2.0           # N per mm^2 of contact a tip holds (N/mm^2 = MPa)
+
+    def tip_force(self, height: float) -> float:
+        """N one contact at this height holds (its tip's area x tip_strength)."""
+        d = self.contact_diameter(height)
+        return self.tip_strength * math.pi * d * d / 4
 
     @property
     def spacing(self) -> float:
@@ -310,7 +323,17 @@ def face_tilt(normal) -> float:
 # --------------------------------------------------------------------------
 # geometry helpers
 
-def _tube(p0, p1, r0: float, r1: float, sections: int = 20) -> trimesh.Trimesh:
+SIDES = 8                                   # rods are octagons: few triangles to draw and slice
+
+
+def _equal_area(sections: int) -> float:
+    """Circumradius of a regular polygon with ``sections`` sides holding the
+    same area as a circle of radius 1 - so an octagonal rod or tip is as
+    strong as the round one its diameter setting describes."""
+    return math.sqrt(2 * math.pi / (sections * math.sin(2 * math.pi / sections)))
+
+
+def _tube(p0, p1, r0: float, r1: float, sections: int = SIDES) -> trimesh.Trimesh:
     """A closed frustum from p0 (radius r0) to p1 (radius r1)."""
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
     axis = p1 - p0
@@ -320,12 +343,13 @@ def _tube(p0, p1, r0: float, r1: float, sections: int = 20) -> trimesh.Trimesh:
     return _lathe(p0, axis / length, [0.0, length], [r0, r1], sections)
 
 
-def _lathe(p0, axis, ts, radii, sections: int = 20) -> trimesh.Trimesh:
+def _lathe(p0, axis, ts, radii, sections: int = SIDES) -> trimesh.Trimesh:
     """A closed solid of revolution about the unit ``axis`` through ``p0``:
     a ring of radius ``radii[k]`` at distance ``ts[k]`` along the axis (in
-    increasing order), capped at both ends."""
+    increasing order), capped at both ends.  The rings are regular polygons
+    with the area of circles of those radii."""
     ang = np.linspace(0, 2 * np.pi, sections, endpoint=False)
-    circle = np.column_stack([np.cos(ang), np.sin(ang), np.zeros(sections)])
+    circle = np.column_stack([np.cos(ang), np.sin(ang), np.zeros(sections)]) * _equal_area(sections)
     n = len(ts)
     verts = np.vstack([circle * r + [0, 0, t] for t, r in zip(ts, radii)] + [[[0, 0, ts[0]], [0, 0, ts[-1]]]])
     cb, ct = n * sections, n * sections + 1
@@ -394,7 +418,9 @@ def _safe(op, a, b):
 
 
 def _bulb(center, r: float) -> trimesh.Trimesh:
-    m = trimesh.creation.icosphere(subdivisions=1, radius=r)
+    """A joint ball for rods of radius r: an icosahedron (20 faces) just big
+    enough that its flat faces sit about where the rods' sides do."""
+    m = trimesh.creation.icosphere(subdivisions=0, radius=1.2 * r)
     m.apply_translation(np.asarray(center, float))
     return m
 
@@ -461,7 +487,7 @@ def generate_braces(supports: list[Support], settings: SupportSettings,
             diagonals = (([*xy[i], za], [*xy[j], zb]), ([*xy[j], za], [*xy[i], zb]))
             if any(not f.segment_clear(a, b, r + settings.model_clearance) for f in checks for a, b in diagonals):
                 continue
-            parts += [_tube(a, b, r, r, sections=10) for a, b in diagonals]
+            parts += [_tube(a, b, r, r) for a, b in diagonals]
         if cache is not None:
             used[key] = parts[mark:]
     if cache is not None:

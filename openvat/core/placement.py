@@ -35,6 +35,18 @@ tight to a few joints whose segments are checked exactly against the part.  Fina
 into split pillars.
 
 Manual and dragged supports go through the same steps (``place_support``).
+
+**Paint** (``MeshObject.paint``, see paint.py): contacts on faces painted
+"block" are dropped; faces painted "enforce" that face down get contacts
+on the lattice (at least one per painted patch), exactly where painted.
+
+**Release force** (``release_check``): every layer is peeled off the vat
+film with a force of ``release_force`` per cm^2 of its area, and the part
+hangs on the tips of its plate supports below that layer, each holding
+``tip_strength`` per mm^2 of contact.  When some layer would pull harder
+than the tips below it hold, contacts are added below it - the overhang
+search run again at a closer spacing - until it holds (or there is no
+more room).
 """
 
 from __future__ import annotations
@@ -51,6 +63,7 @@ from shapely.ops import polylabel, unary_union
 
 from .clearance import ClearanceField, clearance_field
 from .raycast import RayCaster, VerticalRays
+from .paint import BLOCK, ENFORCE, paint_of
 from .supports import (Support, SupportSettings, arm_for_normal, face_tilt, hex_lattice, _polys, _safe,
                        _valid, nook_cone_length)
 
@@ -98,6 +111,7 @@ class ModelSpace:
         self.caster = RayCaster(self.mesh)
         self.field = clearance_field(obj, field_cap(s))
         self.settings = s
+        self.slices: dict = {}           # height -> cross-section (find_contact_points, release_check)
         self._reach = None
 
     @property
@@ -210,20 +224,75 @@ def plate_reach(field: ClearanceField, s: SupportSettings) -> PlateReach:
 
 def generate_supports(obj, settings: SupportSettings, report: dict | None = None,
                       layer_height: float = 0.05) -> list[Support]:
-    """Supports for every island and unsupported overhang of a MeshObject.
-    ``report``, if given, receives how many are straight, routed, split and
-    nook, how many spots were skipped (no room for any support) and how
-    many need none after all (narrow ceilings bridged by walls on both sides)."""
+    """Supports for every island and unsupported overhang of a MeshObject,
+    following its paint, and enough of them to hold it against the release
+    force.  ``report``, if given, receives how many are straight, routed,
+    split and nook, how many spots were skipped (no room for any support),
+    how many need none after all (narrow ceilings bridged by walls on both
+    sides), how many were blocked by paint or added for the release force,
+    and the release check itself (``release``: a ReleaseCheck)."""
     space = model_space(obj, settings)
-    # phase 1: where supports are needed, and of which kind
+    paint = paint_of(obj)
+    contacts = _contacts(space, settings, layer_height)
+    blocked = 0
+    if paint is not None:
+        kept = [c for c in contacts if paint[c[1]] != BLOCK]
+        blocked = len(contacts) - len(kept)
+        contacts = kept + painted_contacts(space, paint, settings, [c[0] for c in kept])
+    supports, anchors, skipped, bridged = _build_supports(obj, space, settings, contacts)
+
+    # enough tips below every layer to hold it against the release force
+    added, check = 0, None
+    if settings.release_force > 0:
+        pitch = settings.spacing
+        for _round in range(3):
+            check = release_check(space.mesh, supports, settings, slices=space.slices)
+            if check.ok:
+                break
+            pitch = max(MIN_RELEASE_PITCH, pitch * 0.9 * math.sqrt(max(check.ratio, 0.25)))
+            tips = np.array([s.tip for s in supports]) if supports else np.zeros((0, 3))
+            extra = []
+            for tip, face, kind in _contacts(space, settings, layer_height, pitch=pitch, z_max=check.top + 1.0):
+                if tip[2] > check.top or (paint is not None and paint[face] == BLOCK):
+                    continue
+                if len(tips) and np.min(np.linalg.norm(tips - tip, axis=1)) < 0.6 * pitch:
+                    continue
+                extra.append((tip, face, kind))
+                tips = np.vstack([tips, tip])
+            if not extra:
+                break
+            more, more_anchors, _sk, _br = _build_supports(obj, space, settings, extra, report_skips=False)
+            supports += more
+            anchors |= more_anchors
+            added += len(more)
+        check = release_check(space.mesh, supports, settings, slices=space.slices)
+
+    if settings.branches:
+        split_pillars(supports, space.field, settings, keep=anchors)
+    if report is not None:
+        for key, n in support_counts(supports).items():
+            report[key] = report.get(key, 0) + n
+        report["skipped"] = report.get("skipped", 0) + skipped
+        report["bridged"] = report.get("bridged", 0) + bridged
+        report["blocked"] = report.get("blocked", 0) + blocked
+        report["release_added"] = report.get("release_added", 0) + added
+        if check is not None:
+            report.setdefault("release", []).append(check)
+    return supports
+
+
+def _build_supports(obj, space: "ModelSpace", settings: SupportSettings, contacts: list,
+                    report_skips: bool = True) -> tuple[list, set, int, int]:
+    """Plan and route supports for contact points (tip, face, kind):
+    (supports, ids of island anchors, spots skipped, spots on bridges)."""
     planned, failed, anchors, unheld = [], [], set(), []
     bridged = 0
-    for tip, face, kind in _contacts(space, settings, layer_height):
-        sup = Support(tip=tip, owner_id=obj.id, normal=np.array(space.rays.normals[face], float))
-        fixed = kind != "overhang"                        # islands: exactly where they start
+    for tip, face, kind in contacts:
+        sup = Support(tip=np.array(tip, float), owner_id=obj.id, normal=np.array(space.rays.normals[face], float))
+        fixed = kind != "overhang"                        # islands and painted spots: exactly there
         if kind == "anchor":
             anchors.add(sup.id)
-        if not fixed and settings.max_bridge > 0 and on_bridge(space, tip, sup.normal, settings.max_bridge):
+        if not fixed and settings.max_bridge > 0 and on_bridge(space, sup.tip, sup.normal, settings.max_bridge):
             bridged += 1                                  # a short bridge holds itself
             continue
         if not _plan(sup, space, settings, fixed):
@@ -246,14 +315,136 @@ def generate_supports(obj, settings: SupportSettings, report: dict | None = None
             skipped += 1
             continue
         supports.append(sup)
-    if settings.branches:
-        split_pillars(supports, space.field, settings, keep=anchors)
-    if report is not None:
-        for key, n in support_counts(supports).items():
-            report[key] = report.get(key, 0) + n
-        report["skipped"] = report.get("skipped", 0) + skipped
-        report["bridged"] = report.get("bridged", 0) + bridged
-    return supports
+    return supports, anchors, (skipped if report_skips else 0), bridged
+
+
+# --------------------------------------------------------------------------
+# release force
+
+MIN_RELEASE_PITCH = 1.2        # mm: contacts added for the release force are never closer than this
+RELEASE_STEP = 0.25            # mm between the layers the release force is checked at
+
+
+class ReleaseCheck:
+    """Whether a part's plate supports hold it against the release force at
+    every layer.  ``demand``/``capacity``: N at the layer where the force is
+    largest (``z``, ``area`` mm^2); ``top``: the highest layer still short
+    (-inf when none); ``ratio``: the worst capacity / demand."""
+
+    def __init__(self, demand, capacity, z, area, top, ratio, on_plate=False):
+        self.demand, self.capacity, self.z, self.area = demand, capacity, z, area
+        self.top, self.ratio, self.on_plate = top, ratio, on_plate
+
+    @property
+    def ok(self) -> bool:
+        return self.on_plate or self.top == -math.inf
+
+    def text(self) -> str:
+        if self.on_plate:
+            return "the part stands on the plate: it holds against the release force"
+        held = f"{self.capacity:.0f} N" if self.capacity < 1e6 else "plenty"
+        return (f"release force up to {self.demand:.0f} N (the {self.area:.0f} mm² layer at "
+                f"{self.z:.1f} mm), the tips below it hold {held}"
+                + ("" if self.ok else f" - too little up to {self.top:.1f} mm"))
+
+
+def release_check(mesh: trimesh.Trimesh, supports: list[Support], s: SupportSettings,
+                  step: float = RELEASE_STEP, slices: dict | None = None) -> ReleaseCheck:
+    """Peel force of every layer (``release_force`` x its area) against what
+    the tips of the plate supports below it hold (``tip_force`` each).
+    Nook supports stand on the part and do not count; a part standing on
+    the plate is held by the plate.  ``slices`` (height -> cross-section,
+    see find_contact_points) are used when they cover the part: every
+    printed layer is checked then, at no extra cost."""
+    from .slicer import MeshSlicer                    # local import: slicer -> scene -> placement
+    lo, hi = mesh.bounds[:, 2]
+    if lo < s.min_support_height:
+        return ReleaseCheck(0.0, math.inf, lo, 0.0, -math.inf, math.inf, on_plate=True)
+    cached = sorted(slices) if slices else []
+    if len(cached) > 1 and cached[0] < lo + step and cached[-1] > hi - step:
+        zs = np.array(cached)
+        area = np.array([slices[z].area for z in cached])
+    else:
+        zs = np.arange(lo + step / 2, hi, step)
+        slicer = MeshSlicer(mesh)
+        area = np.array([slicer.at(float(z)).area for z in zs]) if len(zs) else np.zeros(0)
+    demand = area * s.release_force / 100.0           # N/cm^2 -> N/mm^2
+    plate = [sup for sup in supports if not sup.is_nook]
+    tip_z = np.sort([float(sup.tip[2]) for sup in plate])
+    force = np.array([s.tip_force(float(sup.tip[2])) for sup in sorted(plate, key=lambda q: q.tip[2])])
+    held = np.concatenate([[0.0], np.cumsum(force)])[np.searchsorted(tip_z, zs, side="right")] \
+        if len(zs) else np.zeros(0)
+    if not len(zs) or demand.max() <= 0:
+        return ReleaseCheck(0.0, float(held[-1]) if len(held) else 0.0, lo, 0.0, -math.inf, math.inf)
+    k = int(np.argmax(demand))
+    short = np.flatnonzero(held < demand)
+    with np.errstate(divide="ignore"):
+        ratio = float(np.min(np.where(demand > 0, held / demand, np.inf)))
+    return ReleaseCheck(float(demand[k]), float(held[k]), float(zs[k]), float(area[k]),
+                        float(zs[short].max()) if len(short) else -math.inf, ratio)
+
+
+# --------------------------------------------------------------------------
+# painted contacts
+
+def painted_contacts(space: "ModelSpace", paint: np.ndarray, s: SupportSettings,
+                     existing: list) -> list[tuple[np.ndarray, int, str]]:
+    """Contacts on the faces painted "enforce" that face down with open
+    space under them: on the hexagonal lattice (``spacing``), and at least
+    one on every painted patch the lattice misses.  Spots closer than 0.6 x
+    spacing to an existing contact are left to it."""
+    mesh = space.mesh
+    faces = np.flatnonzero(paint == ENFORCE)
+    if not len(faces):
+        return []
+    down = faces[np.asarray(mesh.face_normals)[faces, 2] < -0.05]
+    if not len(down):
+        return []
+    painted = np.zeros(len(mesh.faces), bool)
+    painted[down] = True
+    pitch = s.spacing
+    keep_off = 0.6 * pitch
+    taken = [np.asarray(p, float) for p in existing]
+    out = []
+
+    def add(x: float, y: float) -> bool:
+        for z, f in reversed(_downward_faces(space, x, y, s)):        # the highest painted face there
+            if painted[f]:
+                tip = np.array([x, y, z])
+                if taken and np.min(np.linalg.norm(np.array(taken) - tip, axis=1)) < keep_off:
+                    return True
+                out.append((tip, int(f), "painted"))
+                taken.append(tip)
+                return True
+        return False
+
+    centers = np.asarray(mesh.triangles_center)[down]
+    lo, hi = centers.min(axis=0), centers.max(axis=0)
+    for x, y in hex_lattice(lo[0] - pitch, hi[0] + pitch, lo[1] - pitch, hi[1] + pitch, pitch):
+        add(float(x), float(y))
+    # patches the lattice missed: one contact at their biggest face
+    adjacency = np.asarray(mesh.face_adjacency)
+    if len(adjacency):
+        both = painted[adjacency[:, 0]] & painted[adjacency[:, 1]]
+        edges = adjacency[both]
+    else:
+        edges = np.zeros((0, 2), int)
+    import scipy.sparse as sparse
+    from scipy.sparse.csgraph import connected_components
+    graph = sparse.coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(len(mesh.faces),) * 2)
+    _n, label = connected_components(graph, directed=False)
+    area = np.asarray(mesh.area_faces)
+    hit = set()
+    for tip, f, _k in out:
+        hit.add(label[f])
+    for patch in np.unique(label[down]):
+        if patch in hit:
+            continue
+        members = down[label[down] == patch]
+        f = int(members[np.argmax(area[members])])
+        c = mesh.triangles_center[f]
+        add(float(c[0]), float(c[1]))
+    return out
 
 
 def support_counts(supports: list[Support]) -> dict:
@@ -303,12 +494,14 @@ def snap_support(sup: Support, obj, settings: SupportSettings) -> bool:
 # --------------------------------------------------------------------------
 # phase 1: contacts and kinds
 
-def _contacts(space: ModelSpace, s: SupportSettings, layer_height: float) -> list[tuple[np.ndarray, int, str]]:
+def _contacts(space: ModelSpace, s: SupportSettings, layer_height: float,
+              pitch: float | None = None, z_max: float | None = None) -> list[tuple[np.ndarray, int, str]]:
     """(contact point, face, kind) of every spot that needs support, islands
-    and anchors first."""
+    and anchors first (``pitch``: contact spacing instead of the density's;
+    ``z_max``: only up to this height)."""
     out = []
-    search = 0.35 * s.spacing
-    points = find_contact_points(space.mesh, s, layer_height)
+    search = 0.35 * (pitch or s.spacing)
+    points = find_contact_points(space.mesh, s, layer_height, pitch=pitch, z_max=z_max, slices=space.slices)
     points.sort(key=lambda p: p[3] == "overhang")        # islands and anchors first: highest priority
     for x, y, z_found, kind in points:
         if kind != "overhang":                           # supported exactly where it starts
@@ -335,13 +528,14 @@ def _plan(sup: Support, space: ModelSpace, s: SupportSettings, fixed: bool = Fal
     if s.nook_max_gap > 0 and _make_nook(sup, space, s, max_gap=s.nook_max_gap, slide=not fixed):
         return True
     field = space.field
-    arms = _arm_candidates(sup, field, s)
-    for arm in arms[:STRAIGHT_TRIES]:
+    arms = _arm_candidates(sup, field, s, limit=STRAIGHT_TRIES)
+    for arm in arms:
         _set_arm(sup, arm)
         if _straight_clear(field, sup.pivot(s), s):
             sup.kind = "plate"
             return True
     if s.routing and arms:
+        arms = _arm_candidates(sup, field, s)               # all of them: one may reach the plate around
         on_map = space.reach.contains(np.array([_pivot_of(sup, arm, s) for arm in arms]))
         for arm, ok in zip(arms, on_map):
             if ok:
@@ -382,11 +576,13 @@ def _arm_note(sup: Support, s: SupportSettings) -> str:
     return "" if same else "; arm turned or lengthened to clear the part"
 
 
-def _arm_candidates(sup: Support, field: ClearanceField, s: SupportSettings) -> list[tuple]:
+def _arm_candidates(sup: Support, field: ClearanceField, s: SupportSettings,
+                    limit: int | None = None) -> list[tuple]:
     """Arms that clear the part, best first: (lean, angle, stretch).  The
     nominal arm (straight, or perpendicular to the face) comes first
     whenever it is clear; the others are scored: turned away from the
-    nominal arm, more oblique to the face, longer, tilted."""
+    nominal arm, more oblique to the face, longer, tilted.  ``limit``: only
+    the best that many."""
     n = np.asarray(sup.normal, float)
     n = n / (np.linalg.norm(n) or 1.0)
     cands = [_nominal_arm(sup, s)]
@@ -431,6 +627,8 @@ def _arm_candidates(sup: Support, field: ClearanceField, s: SupportSettings) -> 
             continue
         pivots.append(pivot)
         out.append(cands[i])
+        if limit is not None and len(out) >= limit:
+            break
     return out
 
 
@@ -843,20 +1041,30 @@ def split_pillars(supports: list[Support], field: ClearanceField, s: SupportSett
     min_trunk = 3.0                                       # mm of trunk below the split
     rise = math.tan(math.radians(_route_tilt(s)))
     clearance = _rod_clearance(s)
+    from scipy.spatial import cKDTree
     free = [sup for sup in supports if not sup.is_nook and sup.trunk is None and not sup.route
             and sup.id not in keep]
     free.sort(key=lambda sup: sup.pillar_top_z(s))
-    used: set[int] = set()
-    for sup in free:
-        if sup.id in used:
+    if len(free) < 2:
+        return
+    pivots = np.array([sup.pivot(s) for sup in free])     # they stay put until a pillar is used
+    xy = np.array([sup.pillar_xy(s) for sup in free])
+    tree = cKDTree(xy)                                    # nearby pillars without sorting them all
+    used = np.zeros(len(free), bool)
+    most = max(int(round(s.branch_max_count)), 1)
+    for i, sup in enumerate(free):
+        if used[i]:
             continue
-        p0 = sup.pivot(s)
-        others = [o for o in free if o.id not in used and o.id != sup.id]
-        others.sort(key=lambda o: np.linalg.norm(o.pillar_xy(s) - p0[:2]))
-        group = [sup] + [o for o in others if np.linalg.norm(o.pillar_xy(s) - p0[:2]) <= s.branch_max_distance]
-        group = group[:max(int(round(s.branch_max_count)), 1)]
-        while len(group) >= 2:
-            piv = np.array([g.pivot(s) for g in group])
+        p0 = pivots[i]
+        near = np.array(sorted(j for j in tree.query_ball_point(p0[:2], s.branch_max_distance + 1e-6)
+                               if j != i and not used[j]), dtype=int)
+        dist = np.linalg.norm(xy[near] - p0[:2], axis=1) if len(near) else np.zeros(0)
+        near = near[np.argsort(dist, kind="stable")]       # nearest first, ties in pillar order
+        near = near[np.sort(dist)[:len(near)] <= s.branch_max_distance]
+        members = [i] + [int(j) for j in near][:most - 1]
+        while len(members) >= 2:
+            group = [free[j] for j in members]
+            piv = pivots[members]
             center = piv[:, :2].mean(axis=0)
             spread = np.linalg.norm(piv[:, :2] - center, axis=1).max()
             split = np.array([center[0], center[1], piv[:, 2].min() - spread / rise])
@@ -866,16 +1074,18 @@ def split_pillars(supports: list[Support], field: ClearanceField, s: SupportSett
                 for g in group:
                     g.trunk = trunk
                     g.status = f"on a split pillar ({len(group)} contacts)" + _arm_note(g, s)
-                    used.add(g.id)
+                used[members] = True
                 break
-            group = group[:-1]                            # drop the farthest and retry
+            members = members[:-1]                        # drop the farthest and retry
 
 
 # --------------------------------------------------------------------------
 # finding contact points
 
 def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_height: float = 0.05,
-                        step: float = DETECTION_STEP) -> list[tuple[float, float, float, str]]:
+                        step: float = DETECTION_STEP, pitch: float | None = None,
+                        z_max: float | None = None, slices: dict | None = None
+                        ) -> list[tuple[float, float, float, str]]:
     """(x, y, z, kind) of every spot that needs support, z = height of the
     slice where it was found, kind = 'island', 'anchor' or 'overhang'.
 
@@ -897,6 +1107,12 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
       spacing) is collected slice after slice, and once a piece of it grows
       large enough a support goes in its middle.  Flat ceilings appear in
       one slice and get supports on a hexagonal lattice.
+
+    ``slices`` (height -> cross-section) keeps the slices for the next call
+    on the same mesh (the release-force rounds, the next Automatic): each
+    is cut only once.  Overhang area that stays
+    away from new overhangs is set aside (``dormant``) so the bookkeeping
+    works on the pieces still growing, not on every sliver collected so far.
     """
     from .slicer import MeshSlicer             # local import: slicer -> scene -> supports
 
@@ -906,7 +1122,7 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
     step = layer * every
     # a face exactly at the overhang angle counts as overhang (whatever the rounding)
     reach = step * math.tan(math.radians(min(settings.overhang_angle, 89.0))) * 0.995
-    pitch = settings.spacing
+    pitch = pitch or settings.spacing
     radius = 0.6 * pitch                       # area held by one support
     min_area = 0.15 * pitch * pitch            # collect at least this much before adding one
     lattice = hex_lattice(lo[0], hi[0], lo[1], hi[1], pitch)
@@ -916,7 +1132,9 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
     anchor_gap = max(1.5, 0.35 * pitch)        # anchors at least this far apart
 
     out: list[tuple[float, float, float, str]] = []
-    pending = Polygon()                        # overhang area still without support
+    pending = Polygon()                        # overhang area still without support, near new overhangs
+    dormant: list[Polygon] = []                # ... and pieces of it that stopped growing
+    near = 12.0 * reach + 0.01                 # how close new overhang must come to wake a piece up
     anchoring: list[dict] = []                 # small islands being followed up for anchors
 
     discs: dict = {}                           # the disc each support holds, made once
@@ -928,7 +1146,7 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
         return d
 
     def covered(z: float, window: float):
-        held = [disc(x, y) for x, y, zz, _k in out if z - zz <= window]
+        held = [disc(x, y) for x, y, zz, _k in out if z - zz <= window + 1e-6]   # (a layer exactly at the edge counts)
         return unary_union(held) if held else Polygon()
 
     def add(x: float, y: float, z: float, kind: str) -> None:
@@ -974,13 +1192,58 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
             add(x, y, zz, "anchor")
         return False
 
+    def rest(geom) -> None:
+        """Set aside the pieces of ``pending`` that are away from ``geom``."""
+        nonlocal pending
+        parts = _polys(pending)
+        if not parts:
+            pending = Polygon()
+            return
+        awake = shapely.dwithin(np.array(parts, dtype=object), geom, near) if geom is not None \
+            else np.zeros(len(parts), bool)
+        dormant.extend(p for p, a in zip(parts, awake) if not a)
+        pending = unary_union([p for p, a in zip(parts, awake) if a]) if awake.any() else Polygon()
+
+    def wake(geom) -> None:
+        """Bring back the set-aside pieces close to new overhang ``geom``."""
+        nonlocal pending, dormant
+        if not dormant:
+            return
+        awake = shapely.dwithin(np.array(dormant, dtype=object), geom, near)
+        if awake.any():
+            pending = unary_union([pending, *(p for p, a in zip(dormant, awake) if a)])
+            dormant = [p for p, a in zip(dormant, awake) if not a]
+
+    def hold(new: list) -> None:
+        """New supports hold their disc of the set-aside pieces too."""
+        nonlocal dormant
+        if not dormant or not new:
+            return
+        held = unary_union([disc(x, y) for x, y, _z, _k in new])
+        hit = shapely.intersects(np.array(dormant, dtype=object), held)
+        if hit.any():
+            kept = [p for p, h in zip(dormant, hit) if not h]
+            for p, h in zip(dormant, hit):
+                if h:
+                    kept.extend(_polys(_safe(shapely.difference, p, held)))
+            dormant = kept
+
     prev = MultiPolygon()                      # the slice one printed layer down (islands)
     prev_step = MultiPolygon()                 # the slice one analysis step down (overhangs)
-    z = lo[2] + layer / 2
-    first, k = True, 0
-    slicer = MeshSlicer(mesh)
-    while z < hi[2]:
-        cur = slicer.at(z)
+    top = hi[2] if z_max is None else min(hi[2], z_max)
+    heights, z = [], lo[2] + layer / 2
+    while z < top:
+        heights.append(float(z)); z += layer
+    cache = slices if slices is not None else {}
+    keys = [round(z, 6) for z in heights]
+    missing = [z for z, key in zip(heights, keys) if key not in cache]
+    if missing:                                # (on one thread: the walk along the segments holds the GIL)
+        slicer = MeshSlicer(mesh)
+        for z in missing:
+            cache[round(z, 6)] = slicer.at(z)
+    first, held_upto = True, 0
+    for k, (z, key) in enumerate(zip(heights, keys)):
+        cur = cache[key]
         if not cur.is_empty and not (first and on_plate):
             islands = []
             for poly in _polys(cur):
@@ -999,6 +1262,7 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
                         add(x, y, z, "island")
             if k % every == 0:
                 grown = prev_step.buffer(reach) if not prev_step.is_empty else None
+                regions = []
                 for poly in _polys(cur):
                     if any(poly.equals(i) for i in islands):
                         continue
@@ -1008,7 +1272,11 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
                     if region.area > min_area and lattice_pts is not None:     # flat ceiling
                         for x, y in lattice[shapely.contains(region, lattice_pts)]:
                             add(float(x), float(y), z, "overhang")
-                    pending = _safe(shapely.union, pending, region)
+                    regions.append(region)
+                new = unary_union(regions) if regions else None
+                if new is not None:
+                    wake(new)
+                    pending = _safe(shapely.union, pending, new)
                 if not pending.is_empty:
                     # consecutive slivers are separated by the reach gap; close it
                     # so a sloped overhang accumulates into one growing piece
@@ -1023,12 +1291,13 @@ def find_contact_points(mesh: trimesh.Trimesh, settings: SupportSettings, layer_
                             part = _safe(shapely.difference, part, disc(c.x, c.y))
                             guard += 1
                     pending = _safe(shapely.difference, pending, covered(z, pitch))
+                rest(new)
+                hold(out[held_upto:])
+                held_upto = len(out)
                 anchoring = [island for island in anchoring if follow(island, cur, prev_step)]
         if k % every == 0:
             prev_step = cur
         prev, first = cur, False
-        z += layer
-        k += 1
     return out
 
 

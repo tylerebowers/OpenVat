@@ -30,6 +30,7 @@ class _ObjectState:
     elevation: float
     holes: tuple
     hollow: object
+    paint: object = None
 
 
 @dataclass
@@ -53,7 +54,7 @@ class UndoStack:
         s = self.scene
         return _Snapshot(
             objects=[_ObjectState(o, o.mesh, o.position.copy(), o.rotation.copy(),
-                                  o.scale.copy(), o.visible, o.name, o.elevation, o.holes, o.hollow)
+                                  o.scale.copy(), o.visible, o.name, o.elevation, o.holes, o.hollow, o.paint)
                      for o in s.objects],
             supports=[(sup, sup.state()) for sup in s.supports],
             selected_id=s.selected.id if s.selected else None,
@@ -69,6 +70,7 @@ class UndoStack:
             o = st.obj
             o.mesh, o.name, o.visible, o.elevation = st.mesh, st.name, st.visible, st.elevation
             o.holes, o.hollow = st.holes, st.hollow            # immutable: shared safely
+            o.paint = st.paint                                 # painting always makes a new array
             o.position[:], o.rotation[:], o.scale[:] = st.position, st.rotation, st.scale
             s.objects.append(o)
         s.supports = []

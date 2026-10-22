@@ -1,11 +1,12 @@
 """Edit → Preferences: light / dark theme (dark unless the user picks
-light), the 3D view's colors for each theme, the interface zoom and the
-folder the printer and resin profiles are kept in.
+light), the 3D view's colors for each theme and its lighting (see
+lighting.py), the interface zoom and the folder the printer and resin
+profiles are kept in - on three tabs.
 
 The theme switches the whole application between an explicit light and an
 explicit dark palette (Fusion style for both, so it changes even when the
-desktop itself is dark) together with that theme's 3D view colors.  Changes
-apply at once (Cancel puts the old ones back) and are saved in
+desktop itself is dark) together with that theme's 3D view colors.  Colors
+and lighting apply at once (Cancel puts the old ones back) and are saved in
 ``~/.openvat/settings.json``.  The zoom is applied through Qt's
 QT_SCALE_FACTOR, which has to be set before the QApplication exists - so
 changing it offers to restart OpenVat.
@@ -23,9 +24,11 @@ from PySide6.QtCore import QProcess, Qt, Signal, QUrl
 from PySide6.QtGui import QColor, QPalette, QDesktopServices
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel, QCheckBox,
                                QVBoxLayout, QHBoxLayout, QMessageBox, QApplication, QPushButton, QColorDialog,
-                               QGroupBox, QGridLayout, QStyleFactory, QLineEdit, QFileDialog)
+                               QGroupBox, QGridLayout, QStyleFactory, QLineEdit, QFileDialog, QTabWidget,
+                               QWidget, QSlider, QSpinBox)
 
 from ..core.profiles import ProfileStore, PRINTERS
+from .lighting import Lighting
 from .theme_colors import DEFAULT_THEME_COLORS
 
 ZOOM_LEVELS = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
@@ -79,6 +82,20 @@ def saved_colors(store: ProfileStore) -> dict:
         colors.update({k: v for k, v in mine.items() if k in colors})
         out[theme] = colors
     return out
+
+
+def saved_lighting(store: ProfileStore) -> Lighting:
+    return Lighting.from_dict(store.settings.get("lighting"))
+
+
+# starting points for the lighting tab (anything left out keeps the default)
+LIGHTING_PRESETS = {
+    "Default": {},
+    "Soft": dict(ambient=0.50, key=0.40, fill=0.20, shine=0.05, gloss=16.0),
+    "High contrast": dict(ambient=0.12, key=0.85, fill=0.12, shine=0.30, gloss=48.0),
+    "Headlight": dict(ambient=0.25, key=0.65, key_azimuth=270.0, key_elevation=25.0, fill=0.20,
+                      fill_azimuth=90.0, fill_elevation=60.0, shine=0.20, follow_view=True),
+}
 
 
 def theme_name(dark: bool) -> str:
@@ -154,18 +171,51 @@ class ColorButton(QPushButton):
             self.changed.emit(self.color)
 
 
-class PreferencesDialog(QDialog):
-    """``preview(dark_mode, colors)`` is called whenever something changes
-    (``colors`` holds both themes, see ``saved_colors``), so the main window
-    can show it right away - and again with the old values on Cancel."""
+class SliderRow(QWidget):
+    """A slider with a spin box beside it (whole numbers), kept in step."""
 
-    def __init__(self, store: ProfileStore, preview: Callable[[bool, dict], None], parent=None):
+    def __init__(self, lo: int, hi: int, suffix: str = "", wrap: bool = False, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(lo, hi)
+        self.spin = QSpinBox()
+        self.spin.setRange(lo, hi)
+        self.spin.setSuffix(suffix)
+        self.spin.setWrapping(wrap)
+        self.spin.setMinimumWidth(80)
+        lay.addWidget(self.slider, 1)
+        lay.addWidget(self.spin)
+        self.slider.valueChanged.connect(self.spin.setValue)
+        self.spin.valueChanged.connect(self.slider.setValue)
+        self.valueChanged = self.spin.valueChanged
+
+    def value(self) -> int:
+        return self.spin.value()
+
+    def setValue(self, v) -> None:
+        self.spin.setValue(int(round(v)))
+
+
+class PreferencesDialog(QDialog):
+    """``preview(dark_mode, colors, lighting)`` is called whenever something
+    changes (``colors`` holds both themes, see ``saved_colors``), so the main
+    window can show it right away - and again with the old values on Cancel."""
+
+    def __init__(self, store: ProfileStore, preview: Callable[[bool, dict, Lighting], None], parent=None):
         super().__init__(parent)
         self.store, self.preview = store, preview
-        self._old = (dark_mode(store), saved_colors(store))
+        self._old = (dark_mode(store), saved_colors(store), saved_lighting(store))
         self.profiles_folder = store.profiles_dir          # applied on OK
+        self._loading = False
         self.setWindowTitle("Preferences")
         root = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        root.addWidget(self.tabs)
+        appearance = QWidget()
+        alay = QVBoxLayout(appearance)
+        self.tabs.addTab(appearance, "Appearance")
 
         look = QGroupBox("Appearance")
         form = QFormLayout(look)
@@ -182,7 +232,7 @@ class PreferencesDialog(QDialog):
         note = QLabel("<i>Zoom scales all text, buttons and panels; it takes effect after a restart.</i>")
         note.setWordWrap(True)
         form.addRow(note)
-        root.addWidget(look)
+        alay.addWidget(look)
 
         colors = QGroupBox("3D view colors")
         grid = QGridLayout(colors)
@@ -204,8 +254,14 @@ class PreferencesDialog(QDialog):
         reset = QPushButton("Default colors")
         reset.clicked.connect(self._default_colors)
         grid.addWidget(reset, len(COLOR_LABELS) + 1, 1, 1, 2)
-        root.addWidget(colors)
+        alay.addWidget(colors)
+        alay.addStretch(1)
 
+        self.tabs.addTab(self._build_lighting(self._old[2]), "Lighting")
+
+        profiles = QWidget()
+        play = QVBoxLayout(profiles)
+        self.tabs.addTab(profiles, "Profiles")
         where = QGroupBox("Printer and resin profiles")
         lay = QVBoxLayout(where)
         self.folder_edit = QLineEdit()
@@ -227,7 +283,8 @@ class PreferencesDialog(QDialog):
         self.folder_note = QLabel()
         self.folder_note.setWordWrap(True)
         lay.addWidget(self.folder_note)
-        root.addWidget(where)
+        play.addWidget(where)
+        play.addStretch(1)
         self._set_folder(self.profiles_folder)
 
         box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -236,9 +293,87 @@ class PreferencesDialog(QDialog):
         root.addWidget(box)
         self._mark_active()
 
-    def values(self) -> tuple[bool, dict]:
-        return self.dark.isChecked(), {theme: {k: b.color for k, b in buttons.items()}
-                                       for theme, buttons in self.buttons.items()}
+    def _build_lighting(self, light: Lighting) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Start from"))
+        self.preset = QComboBox()
+        self.preset.addItem("…")
+        self.preset.addItems(list(LIGHTING_PRESETS))
+        self.preset.setToolTip("Fill in the values below from a preset, then adjust them")
+        self.preset.activated.connect(self._preset_picked)
+        top.addWidget(self.preset)
+        top.addStretch(1)
+        lay.addLayout(top)
+
+        bright = QGroupBox("Brightness")
+        form = QFormLayout(bright)
+        self.light_rows: dict[str, SliderRow] = {}
+
+        def row(form, name, label, lo, hi, suffix, tip, wrap=False):
+            r = SliderRow(lo, hi, suffix, wrap)
+            r.setToolTip(tip)
+            r.valueChanged.connect(self._changed)
+            form.addRow(label, r)
+            self.light_rows[name] = r
+
+        row(form, "ambient", "Ambient", 0, 150, " %", "Light everywhere, also on the sides facing away from the lights")
+        row(form, "key", "Key light", 0, 150, " %", "The main light")
+        row(form, "fill", "Fill light", 0, 150, " %", "A weaker light from the other side, so shadows are not flat")
+        row(form, "shine", "Shine", 0, 100, " %", "How bright the highlights of the key light are")
+        row(form, "gloss", "Gloss", 1, 256, "", "Highlight size: higher makes them smaller and sharper")
+        lay.addWidget(bright)
+
+        where = QGroupBox("Directions")
+        form = QFormLayout(where)
+        row(form, "key_azimuth", "Key light around", 0, 359, " °",
+            "Where the key light comes from, around the plate: 0° = from +X (right), "
+            "90° = from the back, 180° = left, 270° = the front", wrap=True)
+        row(form, "key_elevation", "Key light height", -90, 90, " °",
+            "Height of the key light: 0° = level with the plate, 90° = straight above")
+        row(form, "fill_azimuth", "Fill light around", 0, 359, " °", "Where the fill light comes from", wrap=True)
+        row(form, "fill_elevation", "Fill light height", -90, 90, " °", "Height of the fill light")
+        self.follow_view = QCheckBox("Lights turn with the view")
+        self.follow_view.setToolTip("Keep the lighting the same relative to the camera while orbiting\n"
+                                    "(the directions then count from the front view)")
+        self.follow_view.toggled.connect(self._changed)
+        form.addRow("", self.follow_view)
+        lay.addWidget(where)
+        reset = QPushButton("Default lighting")
+        reset.clicked.connect(lambda: self._set_lighting(Lighting()))
+        lay.addWidget(reset, 0, Qt.AlignLeft)
+        lay.addStretch(1)
+        self._set_lighting(light, preview=False)
+        return page
+
+    def lighting(self) -> Lighting:
+        r = self.light_rows
+        return Lighting(ambient=r["ambient"].value() / 100, key=r["key"].value() / 100,
+                        key_azimuth=r["key_azimuth"].value(), key_elevation=r["key_elevation"].value(),
+                        fill=r["fill"].value() / 100, fill_azimuth=r["fill_azimuth"].value(),
+                        fill_elevation=r["fill_elevation"].value(), shine=r["shine"].value() / 100,
+                        gloss=r["gloss"].value(), follow_view=self.follow_view.isChecked())
+
+    def _set_lighting(self, light: Lighting, preview: bool = True) -> None:
+        self._loading = True
+        for name, r in self.light_rows.items():
+            v = getattr(light, name)
+            r.setValue(v * 100 if name in ("ambient", "key", "fill", "shine") else v)
+        self.follow_view.setChecked(light.follow_view)
+        self._loading = False
+        if preview:
+            self._changed()
+
+    def _preset_picked(self, index: int) -> None:
+        name = self.preset.itemText(index)
+        if name in LIGHTING_PRESETS:
+            self._set_lighting(Lighting(**LIGHTING_PRESETS[name]))
+        self.preset.setCurrentIndex(0)
+
+    def values(self) -> tuple[bool, dict, Lighting]:
+        return (self.dark.isChecked(), {theme: {k: b.color for k, b in buttons.items()}
+                                        for theme, buttons in self.buttons.items()}, self.lighting())
 
     def _mark_active(self) -> None:
         """Underline the column the 3D view uses now."""
@@ -248,6 +383,8 @@ class PreferencesDialog(QDialog):
             head.setText(f"<b><u>{text}</u></b> ◂ in use" if theme == active else f"<b>{text}</b>")
 
     def _changed(self, *_args) -> None:
+        if self._loading:
+            return
         self._mark_active()
         self.preview(*self.values())
 
@@ -316,7 +453,8 @@ class PreferencesDialog(QDialog):
     def accept(self) -> None:
         if not self._move_profiles():
             return
-        dark, colors = self.values()
+        dark, colors, light = self.values()
+        self.store.settings["lighting"] = light.to_dict()
         self.store.settings["dark_mode"] = dark
         self.store.settings["colors"] = {
             theme: {k: v for k, v in colors[theme].items() if v != DEFAULT_THEME_COLORS[theme][k]}

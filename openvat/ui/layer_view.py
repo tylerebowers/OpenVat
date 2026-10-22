@@ -31,6 +31,7 @@ def duration(seconds: float) -> str:
     return f"{minutes // 60}h {minutes % 60:02d}m" if minutes >= 60 else f"{minutes} min"
 
 from ..core.slicer import SliceResult, Layer
+from .usb_export import UsbButton
 
 
 class LayerCanvas(QWidget):
@@ -122,7 +123,11 @@ class PageButtons(QHBoxLayout):
         super().__init__()
         self.setContentsMargins(6, 4, 6, 4)
         self.addStretch(1)
-        for label, slot in buttons:
+        for item in buttons:
+            if isinstance(item, QWidget):                 # a ready-made button (Export to USB)
+                self.addWidget(item)
+                continue
+            label, slot = item
             b = QPushButton(label)
             b.setMinimumHeight(32)
             b.setStyleSheet("padding: 4px 14px;")
@@ -176,8 +181,10 @@ class LayerViewPage(QWidget):
         self.next_island = QPushButton("Next island ▸")
         self.next_island.clicked.connect(self._goto_next_island)
         bottom.addWidget(self.next_island)
+        self.usb_btn = UsbButton()                 # shows while a USB drive is plugged in
         bottom.addLayout(PageButtons([("← Back to 3D view", self.back_requested),
                                       ("Export…", self.export_requested),
+                                      self.usb_btn,
                                       ("Voxel preview →", self.voxels_requested)]), stretch=1)
         root.addLayout(bottom)
         self._show_islands([])

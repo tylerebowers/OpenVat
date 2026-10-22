@@ -777,7 +777,7 @@ def test_supports_route_around_the_model():
 
 
 def test_nook_supports_are_small_and_stand_on_the_part():
-    from openvat.core.supports import SupportSettings
+    from openvat.core.supports import SupportSettings, SIDES, _equal_area
     from openvat.core.placement import generate_supports
     st = SupportSettings(routing=False)          # no detours: everything over the base is a nook
     sups = generate_supports(_mushroom(), st)
@@ -790,9 +790,10 @@ def test_nook_supports_are_small_and_stand_on_the_part():
         along = (m.vertices - tip) @ axis
         radial = np.linalg.norm(m.vertices - tip - along[:, None] * axis, axis=1)    # off the rod's axis
         assert np.degrees(np.arccos(-axis[2])) <= st.max_arm_angle + 1e-6
-        assert radial.max() <= st.nook_diameter / 2 + 1e-6                         # thin all the way
+        octagon = _equal_area(SIDES)                                              # corners of the octagon
+        assert radial.max() <= st.nook_diameter / 2 * octagon + 1e-6               # thin all the way
         ends = (along < 0.2) | (along > np.linalg.norm(foot - tip) - 0.2)          # both contacts
-        assert radial[ends].max() <= st.nook_contact_diameter / 2 + 1e-6
+        assert radial[ends].max() <= st.nook_contact_diameter / 2 * octagon + 1e-6
         assert s.status.startswith("nook support")
 
 
@@ -1791,3 +1792,353 @@ print(same == 23 * 23, supports > 10, models > 10, v._pick(QPoint(2, 2))[0] is N
     r = _run_python(code, {"QT_QPA_PLATFORM": "offscreen"})
     assert r.returncode == 0, r.stderr
     assert r.stdout.split() == ["True", "True", "True", "True"]
+
+
+# --------------------------------------------------------------------------
+# release force, support paint, section view, USB drives
+
+def _wedge(lean: float = 30.0) -> MeshObject:
+    """A 10 mm block on the plate whose +X side leans out ``lean`` degrees
+    from vertical (too little to need supports at the default 45), in
+    small triangles so paint can pick parts of it."""
+    import math
+    m = trimesh.creation.box(extents=[10, 10, 10])
+    m.apply_translation([0, 0, 5])
+    m = trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(m.vertices, m.faces, max_edge=1.5))
+    v = m.vertices.copy()
+    v[:, 0] += v[:, 2] * math.tan(math.radians(lean))
+    obj = MeshObject("wedge", trimesh.Trimesh(v, m.faces))
+    obj.drop_to_plate()
+    return obj
+
+
+def test_release_force_adds_supports_until_every_layer_holds():
+    """Every layer pulls on the film with release_force x its area; the
+    tips below it must hold that.  A stronger pull gets more supports."""
+    from openvat.core.supports import SupportSettings
+    from openvat.core.placement import generate_supports, release_check, model_space
+    obj = MeshObject("slab", trimesh.creation.box(extents=[40, 30, 4]))
+    obj.elevation = 5.0
+    obj.drop_to_plate()
+    st = SupportSettings(release_force=4.0)
+    plain = generate_supports(obj, SupportSettings(release_force=0.0))
+    before = release_check(model_space(obj, st).mesh, plain, st)
+    assert not before.ok and before.area == pytest.approx(1200, rel=0.01)
+    assert before.demand == pytest.approx(1200 * 4.0 / 100, rel=0.01)       # N/cm^2 x cm^2
+    assert before.capacity == pytest.approx(sum(st.tip_force(s.tip[2]) for s in plain), rel=1e-6)
+    report = {}
+    held = generate_supports(obj, st, report)
+    assert report["release_added"] > 0 and len(held) > len(plain)
+    after = report["release"][0]
+    assert after.ok and after.capacity >= after.demand and "holds" not in after.text()
+    on_plate = release_check(model_space(_wedge(), st).mesh, [], st)       # standing on the plate
+    assert on_plate.ok and on_plate.on_plate
+
+
+def test_support_paint_brush_and_overhang_selection():
+    from openvat.core.paint import (ENFORCE, BLOCK, NONE, brushed, overhang_faces, painted_with,
+                                    paint_of, world_normals)
+    obj = _wedge()
+    n = len(obj.mesh.faces)
+    assert paint_of(obj) is None
+    centers = obj.transformed().triangles_center
+    lean = world_normals(obj)[:, 0] > 0.4
+    point = centers[lean].mean(axis=0)                                       # middle of the leaning side
+    p = brushed(obj, point, 2.0, ENFORCE)
+    hit = np.flatnonzero(p == ENFORCE)
+    assert len(hit) > 3 and np.linalg.norm(centers[hit] - point, axis=1).max() <= 2.0 + 1e-9
+    obj.paint = p
+    assert brushed(obj, point, 2.0, ENFORCE) is None                         # nothing new: no change
+    assert obj.paint is p and (brushed(obj, point, 2.0, NONE) == NONE).all() # erasing makes a new array
+    # overhangs: the leaning side (30 deg from vertical) but never the bottom on the plate
+    assert np.array_equal(overhang_faces(obj, 20), lean)
+    assert not overhang_faces(obj, 40).any()
+    obj.rotation[:] = [0, 180, 0]; obj.drop_to_plate()                        # upside down: the top faces down
+    assert overhang_faces(obj, 40).sum() == 0                                  # ... but lies on the plate
+    obj.elevation = 3.0; obj.drop_to_plate()
+    assert overhang_faces(obj, 40).sum() == (np.asarray(obj.mesh.face_normals)[:, 2] > 0.99).sum()
+    q = painted_with(obj, [0, 1, 2], BLOCK)
+    assert q is not obj.paint and list(q[:3]) == [BLOCK] * 3 and len(q) == n
+
+
+def test_painted_supports_go_where_painted_and_not_where_blocked():
+    from openvat.core.paint import ENFORCE, BLOCK, painted_with, world_normals
+    from openvat.core.supports import SupportSettings
+    from openvat.core.placement import generate_supports
+    st = SupportSettings()
+    obj = _wedge()
+    assert generate_supports(obj, st) == []                                  # 30 deg: no supports needed
+    lean = world_normals(obj)[:, 0] > 0.4
+    obj.paint = painted_with(obj, lean, ENFORCE)
+    report = {}
+    sups = generate_supports(obj, st, report)
+    assert len(sups) >= 2 and report["straight"] == len(sups)
+    centers = obj.transformed().triangles_center
+    for s in sups:                                                           # on the painted side
+        assert lean[np.argmin(np.linalg.norm(centers - s.tip, axis=1))]
+    # blocking: a lifted slab with its +X half painted "no supports"
+    slab = MeshObject("slab", trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(
+        *(lambda b: (b.vertices, b.faces))(trimesh.creation.box(extents=[20, 14, 3])), max_edge=1.5)))
+    slab.elevation = 4.0
+    slab.drop_to_plate()
+    m = slab.matrix()
+    cx = (slab.mesh.triangles_center @ m[:3, :3].T + m[:3, 3])[:, 0]
+    no_pull = SupportSettings(release_force=0.0)          # (else the open half gets more for the pull)
+    full = generate_supports(slab, no_pull)
+    slab.paint = painted_with(slab, cx > 0, BLOCK)
+    report = {}
+    half = generate_supports(slab, no_pull, report)
+    assert report["blocked"] > 0 and 0 < len(half) < len(full)
+    assert all(s.tip[0] <= 0.75 for s in half)
+    report = {}                                           # with the pull: more on the open half, none blocked
+    pulled = generate_supports(slab, st, report)
+    assert len(pulled) > len(half) and all(s.tip[0] <= 0.75 for s in pulled) and report["release"][0].ok
+
+
+def test_paint_section_and_usb_button_in_the_ui():
+    """A paint stroke with the mouse (and undo), the section view's cut and
+    picking through it, its controls, and the Export to USB button."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    code = '''
+import numpy as np, trimesh
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from openvat.core.scene import Scene
+from openvat.core.mesh import MeshObject
+from openvat.core.paint import ENFORCE
+from openvat.core.usb import Drive
+from openvat.ui.viewport3d import Viewport3D
+from openvat.ui.side_panel import SectionControls
+from openvat.ui.usb_export import UsbButton, UsbWatcher
+scene = Scene()
+box = trimesh.creation.box(extents=[20, 20, 20])
+obj = MeshObject("box", trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(box.vertices, box.faces, max_edge=2.0)))
+obj.drop_to_plate(); scene.add(obj)
+v = Viewport3D(scene); v.resize(600, 600); v.show()
+v.camera.set_view("front"); v.camera.fit(scene.bounds(), (100, 100))
+for _ in range(10): app.processEvents(); QTest.qWait(10)
+out = []
+v.set_paint(on=True, value=ENFORCE, radius=2.5)
+c = QPoint(300, 300)
+QTest.mousePress(v, Qt.LeftButton, Qt.NoModifier, c)
+for k in range(1, 8):
+    QTest.mouseMove(v, QPoint(300 + 8 * k, 300))
+QTest.mouseRelease(v, Qt.LeftButton, Qt.NoModifier, QPoint(356, 300))
+painted = np.flatnonzero(obj.paint == ENFORCE) if obj.paint is not None else []
+front = np.asarray(obj.mesh.face_normals)[painted][:, 1] < -0.99 if len(painted) else [False]
+out.append(len(painted) > 10 and bool(np.all(front)) and scene.selected is obj)
+out.append(scene.undo_stack.undo() and obj.paint is None)
+v.set_paint(on=False)
+# the section view: cut at y = 0 showing the far half; a click passes the cut-away front
+v.set_section(1, 0.0, True)
+item, pt = v._pick(c)
+shows = v.section_shows(np.array([0, -5.0, 10])), v.section_shows(np.array([0, 5.0, 10]))
+out.append(item is obj and abs(pt[1] - 10) < 1e-6 and shows == (False, True))
+v.set_section(None)
+item, pt = v._pick(c)
+out.append(item is obj and abs(pt[1] + 10) < 1e-6)
+sec = SectionControls(scene)
+got = []
+sec.changed.connect(got.append)
+sec.enable.setChecked(True)
+sec.flip.setChecked(True)
+sec.axes.button(0).setChecked(True)
+sec.enable.setChecked(False)
+out.append([g if g is None else (g[0], round(g[1], 1), g[2]) for g in got])
+btn = UsbButton(); picked = []
+btn.export_to.connect(picked.append)
+one = [Drive("STICK", "/media/u/STICK", "/dev/sdb1")]
+btn.set_drives(one); btn.click()
+out.append((btn.isHidden(), btn.text(), picked == one))
+btn.set_drives(one + [Drive("CARD", "", "/dev/mmcblk0p1")])
+out.append((btn.text(), len(btn.menu().actions())))
+btn.set_drives([])
+out.append(btn.isHidden())
+seen = []
+w = UsbWatcher(probe=lambda: list(one)); w.changed.connect(seen.append)
+w.refresh(); w.refresh()
+out.append(len(seen))
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[:4] == [True, True, True, True]
+    assert out[4] == [(2, 10.0, False), (2, 10.0, True), (0, 0.0, True), None]
+    assert out[5] == (False, "Export to USB (STICK)", True)
+    assert out[6] == ("Export to USB", 2)
+    assert out[7] is True and out[8] == 1
+
+
+def test_usb_drives_from_mountinfo_and_sysfs(tmp_path):
+    """USB and SD card partitions are found, mounted or not (KDE leaves new
+    sticks unmounted); internal disks, swap and read-only mounts are not."""
+    import os
+    from openvat.core import usb
+    sysd = tmp_path / "sys" / "devices"
+    blk = tmp_path / "sys" / "class" / "block"
+    blk.mkdir(parents=True)
+    dev = tmp_path / "dev"
+    (dev / "disk" / "by-uuid").mkdir(parents=True)
+    (dev / "disk" / "by-label").mkdir(parents=True)
+
+    def disk(path, name, removable, parts):
+        d = sysd / path / "block" / name
+        d.mkdir(parents=True)
+        (d / "removable").write_text(f"{removable}\n")
+        os.symlink(d, blk / name)
+        for p in parts:
+            (d / p).mkdir()
+            (d / p / "partition").write_text("1\n")
+            os.symlink(d / p, blk / p)
+            (dev / p).write_text("")
+            os.symlink(dev / p, dev / "disk" / "by-uuid" / f"uuid-{p}")
+
+    disk("pci0000:00/ata1/host0", "sda", 0, ["sda1", "sda2"])               # the internal disk
+    disk("pci0000:00/usb2/2-1/host6", "sdb", 0, ["sdb1"])                    # USB stick (not flagged)
+    disk("pci0000:00/usb2/2-2/host7", "sdc", 1, ["sdc1", "sdc2"])            # another, not mounted
+    disk("platform/mmc0", "mmcblk0", 0, ["mmcblk0p1"])                      # an SD card
+    os.symlink(dev / "sdc1", dev / "disk" / "by-label" / "MY\\x20STICK")
+    mounts = tmp_path / "mountinfo"
+    mounts.write_text(
+        "22 1 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw\n"
+        "23 22 8:1 / /boot/efi rw,relatime shared:2 - vfat /dev/sda1 rw\n"
+        "90 22 8:17 / /run/media/tyler/KING\\040STON rw,nosuid,nodev shared:9 - vfat /dev/sdb1 rw,fmask=0022\n"
+        "91 22 179:1 / /run/media/tyler/SDCARD ro,nosuid shared:10 - exfat /dev/mmcblk0p1 ro\n"
+        "92 22 0:40 / /tmp rw - tmpfs tmpfs rw\n")
+    got = usb.linux_drives(str(mounts), str(blk), str(dev / "disk"))
+    by_dev = {d.device: d for d in got}
+    assert set(by_dev) == {"/dev/sdb1", "/dev/sdc1", "/dev/sdc2"}           # sdc2: a file system, no label
+    assert by_dev["/dev/sdb1"].path == "/run/media/tyler/KING STON" and by_dev["/dev/sdb1"].label == "KING STON"
+    assert not by_dev["/dev/sdc1"].mounted and by_dev["/dev/sdc1"].label == "MY STICK"
+    assert "not mounted" in by_dev["/dev/sdc1"].describe()
+    assert usb._parent_disk("/dev/sdc2", str(blk)) == "/dev/sdc"
+
+
+# --------------------------------------------------------------------------
+# faster support generation, lighting, the View card
+
+def test_contact_search_keeps_its_slices():
+    """The contact search cuts each layer once: the release check and the
+    next run (release-force rounds, Automatic again) reuse the slices and
+    find the same contacts."""
+    from openvat.core import slicer
+    from openvat.core.supports import SupportSettings
+    from openvat.core.placement import find_contact_points, release_check
+    obj = _mushroom()
+    obj.elevation = 4.0
+    obj.drop_to_plate()
+    mesh = obj.transformed()
+    st = SupportSettings()
+    cache = {}
+    first = find_contact_points(mesh, st, 0.05, slices=cache)
+    assert len(cache) == int(np.ceil((mesh.bounds[1, 2] - mesh.bounds[0, 2]) / 0.05))
+    cuts = []
+    at = slicer.MeshSlicer.at
+    slicer.MeshSlicer.at = lambda self, z: cuts.append(z) or at(self, z)
+    try:
+        again = find_contact_points(mesh, st, 0.05, slices=cache)
+        fresh = find_contact_points(mesh, st, 0.05)
+        cached = release_check(mesh, [], st, slices=cache)
+        n_cut = len(cuts)
+        plain = release_check(mesh, [], st)
+    finally:
+        slicer.MeshSlicer.at = at
+    assert again == first == fresh and n_cut == len(cache)      # the second run cut nothing
+    assert cached.area == pytest.approx(plain.area, rel=0.02) and cached.area == pytest.approx(np.pi * 15 ** 2, rel=0.02)
+
+
+def test_split_pillars_scales_to_many_supports():
+    """Grouping pillars onto shared trunks looks up neighbours in a tree,
+    so thousands of supports group in moments, within the branch limits."""
+    import time
+    from openvat.core.supports import SupportSettings
+    from openvat.core.placement import generate_supports
+    obj = MeshObject("plaque", trimesh.creation.box(extents=[120, 80, 3]))
+    obj.elevation = 12.0
+    obj.drop_to_plate()
+    st = SupportSettings(release_force=0.0, density="high")
+    t = time.time()
+    sups = generate_supports(obj, st)
+    took = time.time() - t
+    assert len(sups) > 1000 and took < 60
+    trunks: dict = {}
+    for s in sups:
+        if s.trunk is not None:
+            trunks.setdefault(s.trunk, []).append(s)
+    assert trunks and max(len(g) for g in trunks.values()) <= st.branch_max_count
+    for trunk, group in trunks.items():
+        spread = max(np.linalg.norm(a.pivot(st)[:2] - b.pivot(st)[:2]) for a in group for b in group)
+        assert spread <= 2 * st.branch_max_distance + 1e-6
+
+
+def test_lighting_settings():
+    from openvat.ui.lighting import Lighting
+    old_key, old_fill = np.array([0.4, -0.6, 1.0]), np.array([-0.6, 0.5, 0.3])
+    key, fill = Lighting().directions()
+    assert np.degrees(np.arccos(key @ old_key / np.linalg.norm(old_key))) < 1.0    # the lights as they were
+    assert np.degrees(np.arccos(fill @ old_fill / np.linalg.norm(old_fill))) < 1.0
+    light = Lighting.from_dict({"ambient": "0.5", "key": 9, "gloss": -3, "key_azimuth": 450, "junk": 1,
+                                "follow_view": 1, "fill": "bad"})
+    assert (light.ambient, light.key, light.gloss, light.key_azimuth, light.fill) == (0.5, 2.0, 1.0, 90.0, 0.25)
+    assert light.follow_view is True and Lighting.from_dict(light.to_dict()) == light
+    assert Lighting.from_dict(None) == Lighting()
+    turned, _ = Lighting(key_azimuth=90.0, key_elevation=0.0, follow_view=True).directions(camera_yaw=90.0)
+    assert np.allclose(turned, [-1, 0, 0], atol=1e-6)                 # follows the view: turns with it
+    fixed, _ = Lighting(key_azimuth=90.0, key_elevation=0.0).directions(camera_yaw=90.0)
+    assert np.allclose(fixed, [0, 1, 0], atol=1e-6)
+
+
+def test_view_card_lighting_and_no_double_click_fit(tmp_path):
+    """The View card's check boxes and the View menu stay in step; Edit ->
+    Preferences -> Lighting previews in the 3D view, Cancel puts it back, OK
+    keeps it for the next start; a double-click no longer fits the view."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    code = f'''
+import time
+from PySide6.QtCore import Qt, QPoint, QTimer
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from openvat.core.profiles import ProfileStore
+from openvat.ui.main_window import MainWindow
+from openvat.ui.app_settings_dialog import PreferencesDialog
+st = ProfileStore({str(tmp_path)!r}); st.printers.append(st.printer_presets[0])
+w = MainWindow(st); w.resize(1100, 700); w.show()
+for _ in range(10): app.processEvents(); time.sleep(0.01)
+out = []
+view = w.side.view
+view.see_through.setChecked(True); w.plate_action.setChecked(False)
+out.append((w.see_through_action.isChecked(), w.viewport.see_through, view.plate.isChecked(), w.viewport.show_plate))
+out.append(w.side.sections["view"].summary.text())
+d = w.viewport.camera.distance = 777.0
+QTest.mouseDClick(w.viewport, Qt.LeftButton, Qt.NoModifier, QPoint(15, 15))
+out.append(w.viewport.camera.distance == d)
+def answer(ok):
+    dlg = app.activeModalWidget()
+    if not isinstance(dlg, PreferencesDialog):
+        QTimer.singleShot(50, lambda: answer(ok)); return
+    dlg.light_rows["ambient"].setValue(80)
+    dlg.light_rows["key_azimuth"].setValue(10)
+    out.append((round(w.viewport.lighting.ambient, 2), round(w.voxel_page.viewport.lighting.key_azimuth)))
+    dlg.accept() if ok else dlg.reject()
+QTimer.singleShot(50, lambda: answer(False)); w.open_preferences()
+out.append(round(w.viewport.lighting.ambient, 2))
+QTimer.singleShot(50, lambda: answer(True)); w.open_preferences()
+again = MainWindow(st)
+out.append((round(again.viewport.lighting.ambient, 2), round(again.viewport.lighting.key_azimuth)))
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[0] == (True, True, False, False)
+    assert out[1] == "no plate · see-through"
+    assert out[2] is True
+    assert out[3] == (0.8, 10) and out[4] == 0.3 and out[5] == (0.8, 10) and out[6] == (0.8, 10)

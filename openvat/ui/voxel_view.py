@@ -30,6 +30,7 @@ from ..core.scene import Scene
 from ..core.slicer import SliceResult
 from ..core.voxels import build_volume, VoxelVolume, VoxelFaces, pack_faces
 from .layer_view import PageButtons, separator, ISLAND_RED
+from .usb_export import UsbButton
 from .view_cube import ViewCube
 from .viewport3d import Viewport3D, GL_INFO, build_program, software_renderer
 
@@ -315,9 +316,11 @@ class VoxelViewPage(QWidget):
         self.slow = QLabel("")
         self.slow.setStyleSheet(f"color: {ISLAND_RED}; font-weight: bold;")
         bottom.addWidget(self.slow)
+        self.usb_btn = UsbButton()                 # shows while a USB drive is plugged in
         bottom.addLayout(PageButtons([("← Back to 3D view", self.back_requested),
                                       ("← Layers", self.layers_requested),
-                                      ("Export…", self.export_requested)]), stretch=1)
+                                      ("Export…", self.export_requested),
+                                      self.usb_btn]), stretch=1)
         root.addLayout(bottom)
 
         self.slider.valueChanged.connect(self.spin.setValue)
