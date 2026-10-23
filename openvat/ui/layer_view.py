@@ -9,10 +9,10 @@ the whole print (height, resin, time), and islands when there are any."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPointF, QRectF, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, Signal, QEvent, QSize
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QPen, QWheelEvent, QMouseEvent
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSlider, QSpinBox, QLabel,
-                               QPushButton, QFrame)
+                               QPushButton, QFrame, QBoxLayout, QLayout)
 
 ISLAND_RED = "#e05a5a"
 
@@ -31,6 +31,7 @@ def duration(seconds: float) -> str:
     return f"{minutes // 60}h {minutes % 60:02d}m" if minutes >= 60 else f"{minutes} min"
 
 from ..core.slicer import SliceResult, Layer
+from .nav import NavButton, nav_gap
 from .usb_export import UsbButton
 
 
@@ -121,18 +122,66 @@ class PageButtons(QHBoxLayout):
 
     def __init__(self, buttons: list[tuple[str, object]]):
         super().__init__()
-        self.setContentsMargins(6, 4, 6, 4)
+        self.fit_gap()
         self.addStretch(1)
         for item in buttons:
             if isinstance(item, QWidget):                 # a ready-made button (Export to USB)
                 self.addWidget(item)
                 continue
             label, slot = item
-            b = QPushButton(label)
-            b.setMinimumHeight(32)
-            b.setStyleSheet("padding: 4px 14px;")
+            b = NavButton(label)
             b.clicked.connect(slot)
             self.addWidget(b)
+
+    def fit_gap(self) -> None:
+        """Float the buttons NAV_GAP off the window's bottom and right edge
+        (the page itself keeps 6 px at the sides, none at the bottom)."""
+        g = nav_gap()
+        self.setContentsMargins(6, 4, max(g - 6, 0), g)
+
+
+class PageBar(QWidget):
+    """A page's bottom bar: what it shows on the left, the page buttons on
+    the right - in one row when there is room, else the buttons in a row of
+    their own under it (so the big buttons never make the window wider)."""
+
+    def __init__(self, info: QLayout, buttons: QLayout, parent=None):
+        super().__init__(parent)
+        self.info, self.buttons = info, buttons
+        self.box = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.box.setContentsMargins(0, 0, 0, 0)
+        self.box.setSpacing(8)
+        self.box.setSizeConstraint(QLayout.SetNoConstraint)   # the minimum is ours (below)
+        self.box.addLayout(info)
+        self.box.addLayout(buttons, 1)
+
+    def one_row(self) -> bool:
+        return self.box.direction() == QBoxLayout.LeftToRight
+
+    def _arrange(self) -> None:
+        room = self.width() >= self.info.sizeHint().width() + self.buttons.sizeHint().width() + self.box.spacing()
+        direction = QBoxLayout.LeftToRight if room else QBoxLayout.TopToBottom
+        if self.box.direction() != direction:
+            self.box.setDirection(direction)
+            self.updateGeometry()
+
+    def resizeEvent(self, e) -> None:
+        self._arrange()
+        super().resizeEvent(e)
+
+    def event(self, e) -> bool:
+        if e.type() == QEvent.LayoutRequest:          # a label or button changed size
+            self._arrange()
+        elif e.type() == QEvent.FontChange and isinstance(self.buttons, PageButtons):
+            self.buttons.fit_gap()                    # the zoom changed
+        return super().event(e)
+
+    def minimumSizeHint(self) -> QSize:
+        width = max(self.info.minimumSize().width(), self.buttons.minimumSize().width())
+        return QSize(width, self.box.minimumSize().height())
+
+    def sizeHint(self) -> QSize:
+        return self.box.sizeHint()
 
 
 class LayerViewPage(QWidget):
@@ -181,12 +230,13 @@ class LayerViewPage(QWidget):
         self.next_island = QPushButton("Next island ▸")
         self.next_island.clicked.connect(self._goto_next_island)
         bottom.addWidget(self.next_island)
+        bottom.addStretch(1)                       # (on a row of its own: packed to the left)
         self.usb_btn = UsbButton()                 # shows while a USB drive is plugged in
-        bottom.addLayout(PageButtons([("← Back to 3D view", self.back_requested),
-                                      ("Export…", self.export_requested),
-                                      self.usb_btn,
-                                      ("Voxel preview →", self.voxels_requested)]), stretch=1)
-        root.addLayout(bottom)
+        self.bar = PageBar(bottom, PageButtons([("← Back to 3D view", self.back_requested),
+                                                ("Export…", self.export_requested),
+                                                self.usb_btn,
+                                                ("Voxel preview →", self.voxels_requested)]))
+        root.addWidget(self.bar)
         self._show_islands([])
 
     def set_result(self, result: SliceResult) -> None:

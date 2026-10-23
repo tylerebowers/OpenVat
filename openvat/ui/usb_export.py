@@ -9,9 +9,10 @@ menu of drives when there are several.
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtWidgets import QMenu, QPushButton
+from PySide6.QtWidgets import QMenu
 
 from ..core.usb import Drive, removable_drives
+from .nav import NavButton
 
 
 class UsbWatcher(QObject):
@@ -35,13 +36,11 @@ class UsbWatcher(QObject):
         return self.drives
 
 
-class UsbButton(QPushButton):
+class UsbButton(NavButton):
     export_to = Signal(object)          # the Drive picked
 
     def __init__(self, parent=None):
         super().__init__("Export to USB", parent)
-        self.setMinimumHeight(32)
-        self.setStyleSheet("padding: 4px 14px;")
         self.drives: list[Drive] = []
         self.clicked.connect(self._clicked)
         self.set_drives([])

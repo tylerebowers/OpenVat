@@ -1,14 +1,13 @@
 """Running totals for the home page ("stats" in settings.json): how many
-models were opened, projects saved, slices and layers made, supports
-placed, print files written (and how many of them to a USB drive), and the
-resin and print time in the files written."""
+models were opened, slices and layers made, supports placed, print files
+written (and how many of them to a USB drive), and the resin and print
+time in the files written."""
 
 from __future__ import annotations
 
 # key -> label, in the order the home page shows them
 STATS = {
     "models": "Models opened",
-    "projects": "Projects saved",
     "slices": "Slices",
     "layers": "Layers sliced",
     "supports": "Supports placed",

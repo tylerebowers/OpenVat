@@ -17,8 +17,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QObject, Slot, QUrl, QTimer, QBuffer, QIODevice
 from PySide6.QtGui import QAction, QKeySequence, QColor
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QStackedWidget,
-                               QFileDialog, QMessageBox, QProgressDialog, QPushButton,
-                               QApplication)
+                               QFileDialog, QMessageBox, QProgressDialog, QApplication)
 
 from .. import APP_NAME, __version__
 from ..core.loaders import load_file, FILE_FILTER, ALL_EXTENSIONS
@@ -45,6 +44,8 @@ from .view_cube import ViewCube
 from .viewport3d import Viewport3D, software_renderer
 from .usb_export import UsbWatcher
 from .home_page import HomePage
+from .nav import NavButton
+from .zoom import UiZoom
 
 HINT = ("Left-drag: move · Right-drag: orbit · Middle/Shift-drag: pan · "
         "Wheel: zoom · F: fit · Drop files here to import")
@@ -87,6 +88,7 @@ class MainWindow(QMainWindow):
             self.scene.support_settings = SupportSettings.from_dict(self.store.settings["supports"])
         if "hollowing" in self.store.settings:
             self.scene.hollow_settings = HollowSettings.from_dict(self.store.settings["hollowing"])
+        self.ui_zoom = UiZoom(self.store, self)    # Ctrl + / Ctrl - / Ctrl + wheel (zoom.py)
         self.result: SliceResult | None = None
         self._result_revision: int | None = None    # the plate's revision when it was sliced
         self.project_path: str | None = None         # the project file the plate belongs to
@@ -144,6 +146,8 @@ class MainWindow(QMainWindow):
         self.side.problems.activated.connect(self._problem_clicked)
         self.tools.supports_made.connect(lambda n: self._count(supports=n))
         self._saved_revision = self.scene.revision
+        self.ui_zoom.changed.connect(self._zoom_changed)
+        self._zoom_seen = self.ui_zoom.relative()
         self._update_title()
         self._refresh_problems()
         self._refresh_home()
@@ -180,13 +184,9 @@ class MainWindow(QMainWindow):
         # the mouse hint floats over the bottom of the view (transparent; it also
         # warns about objects outside the build volume), the Slice button at its right
         self.hint = HintLine()
-        slice_btn = QPushButton("Slice ▶")
-        slice_btn.setMinimumHeight(32)
-        slice_btn.setStyleSheet("font-weight: bold; padding: 4px 18px;")
+        slice_btn = NavButton("Slice ▶", bold=True)
         slice_btn.clicked.connect(self.slice)
-        home_btn = QPushButton("⌂ Home")
-        home_btn.setMinimumHeight(32)
-        home_btn.setStyleSheet("padding: 4px 14px;")
+        home_btn = NavButton("⌂ Home")
         home_btn.setToolTip("The home page: recent files and projects (Ctrl+0)")
         home_btn.clicked.connect(self.show_home)
 
@@ -204,6 +204,8 @@ class MainWindow(QMainWindow):
         self.tools.hollow_settings_changed.connect(self._save_hollow_settings)
         self.tools.move_tool_toggled.connect(lambda on: self._set_view_tool("move", on))
         self.tools.rotate_tool_toggled.connect(lambda on: self._set_view_tool("rotate", on))
+        self.tools.move_snap_toggled.connect(lambda on: self._set_snap("snap_move", on))
+        self.tools.rotate_snap_toggled.connect(lambda on: self._set_snap("snap_rotate", on))
         self.tools.lay_face_toggled.connect(self._set_lay_face_mode)
         self.tools.paint_mode_toggled.connect(self._set_paint_mode)
         self.tools.paint_options_changed.connect(self._paint_options_changed)
@@ -264,6 +266,12 @@ class MainWindow(QMainWindow):
             act.toggled.connect(box.setChecked)
         view_menu.addSeparator()
         self._action(view_menu, "Fit to scene", self.viewport.fit_view, "F")
+        view_menu.addSeparator()
+        zoom_in = self._action(view_menu, "Zoom in", lambda: self.ui_zoom.step(1), QKeySequence.ZoomIn)
+        zoom_in.setShortcuts([QKeySequence.ZoomIn, QKeySequence("Ctrl+=")])     # + without Shift too
+        self._action(view_menu, "Zoom out", lambda: self.ui_zoom.step(-1), QKeySequence.ZoomOut)
+        self._action(view_menu, "Actual size", self.ui_zoom.reset)
+        view_menu.addSeparator()
         self._action(view_menu, "Home page", self.show_home, "Ctrl+0")
         self._action(view_menu, "3D view", lambda: self.pages.setCurrentIndex(0), "Ctrl+1")
         self._action(view_menu, "Layer view", self._show_layers, "Ctrl+2")
@@ -446,7 +454,6 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         self.project_path = path
         self._saved_revision = self.scene.revision
-        self._count(projects=1)
         self._remember_recent("projects", path)
         self._update_title()
         return True
@@ -508,10 +515,14 @@ class MainWindow(QMainWindow):
         return answer == QMessageBox.Discard
 
     def closeEvent(self, event) -> None:
-        if self._maybe_save("closing"):
-            event.accept()
-        else:
+        if not self._maybe_save("closing"):
             event.ignore()
+            return
+        self.voxel_page.stop()                         # no thread may outlive the window
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(30000)
+        event.accept()
 
     # ------------------------------------------------------------ home page
     def show_home(self) -> None:
@@ -627,7 +638,17 @@ class MainWindow(QMainWindow):
         """The move arrows / rotate rings (the eyes on the Position and
         Rotation cards); remembered for the next start."""
         self.viewport.set_tools(**{kind: on})
-        self.store.settings["view_tools"] = {"move": self.viewport.show_move, "rotate": self.viewport.show_rotate}
+        self._save_view_tools()
+
+    def _set_snap(self, kind: str, on: bool) -> None:
+        """The grid / angle buttons: 10 mm and 15 degree steps (remembered)."""
+        setattr(self.viewport, kind, on)
+        self._save_view_tools()
+
+    def _save_view_tools(self) -> None:
+        v = self.viewport
+        self.store.settings["view_tools"] = {"move": v.show_move, "rotate": v.show_rotate,
+                                             "snap_move": v.snap_move, "snap_rotate": v.snap_rotate}
         self.store.save_settings()
         self._update_hint()
 
@@ -636,6 +657,8 @@ class MainWindow(QMainWindow):
         if isinstance(saved, dict):
             self.tools.move_eye.setChecked(bool(saved.get("move")))
             self.tools.rotate_eye.setChecked(bool(saved.get("rotate")))
+            self.tools.move_snap.setChecked(bool(saved.get("snap_move")))
+            self.tools.rotate_snap.setChecked(bool(saved.get("snap_rotate")))
         tab = self.store.settings.get("tools_tab")
         if isinstance(tab, int):
             self.tools.show_page(tab)
@@ -717,6 +740,7 @@ class MainWindow(QMainWindow):
         else:
             text, warn, halo = QColor(235, 237, 240, 200), QColor(255, 107, 107), QColor(0, 0, 0, 170)
         parts = [(HINT, text, False)]
+        sep = ("   ·   ", text, False)
         if self.viewport.lay_face_mode:
             parts = [(self._lay_face_hint(), text, True), ("   ·   ", text, False)] + parts
         elif self.viewport.paint_mode:
@@ -724,7 +748,7 @@ class MainWindow(QMainWindow):
                 self.viewport.paint_value, "")
             parts = [(f"Support paint: drag on a model {what}", text, True), ("   ·   ", text, False)] + parts
         elif (self.viewport.show_move or self.viewport.show_rotate) and self.scene.selected is not None:
-            parts += [("   ·   ", text, False), ("Ctrl-drag an arrow / ring: snap", text, False)]
+            parts += [("   ·   ", text, False), (self._snap_hint(), text, False)]
         n_out = sum(not ok for ok in self.scene.fits(self.side.current_printer()).values())
         if n_out:
             s = "s" if n_out != 1 else ""
@@ -732,8 +756,21 @@ class MainWindow(QMainWindow):
         if software_renderer():
             parts += [("   ·   ", text, False),
                       ("⚠ OpenGL runs in software - the 3D view will be slow (Help → About)", warn, True)]
-        self.hint.set_parts(parts, halo)
+        compact = [p for p in parts if p[0] != HINT]              # no room: the mouse controls go first
+        while compact and compact[0] == sep:
+            compact = compact[1:]
+        compact = [p for i, p in enumerate(compact) if not (p == sep and i + 1 < len(compact) and compact[i + 1] == sep)]
+        if compact and compact[-1] == sep:
+            compact = compact[:-1]
+        self.hint.set_parts(parts, halo, compact)
         self.host.relayout()
+
+    def _snap_hint(self) -> str:
+        v = self.viewport
+        snapping = [w for w, on in (("10 mm", v.snap_move), ("15°", v.snap_rotate)) if on]
+        if not snapping:
+            return "Ctrl-drag an arrow / ring: 1 mm / 15° steps"
+        return f"Snapping to {' and '.join(snapping)} (Ctrl: 1 mm / {'1°' if v.snap_rotate else '15°'} steps)"
 
     def _lay_face_hint(self) -> str:
         obj = self.scene.selected
@@ -746,9 +783,22 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ preferences
     def open_preferences(self) -> None:
         before = self.store.profiles_dir
-        PreferencesDialog(self.store, self._apply_preferences, self).exec()
+        dlg = PreferencesDialog(self.store, self._apply_preferences, self)
+        if dlg.exec() and getattr(dlg, "chosen_zoom", None) is not None:
+            self.ui_zoom.set_zoom(dlg.chosen_zoom)
         if self.store.profiles_dir != before:
             self._profiles_moved(before)
+
+    def _zoom_changed(self, _zoom: float) -> None:
+        """The interface zoom changed: the panels keep their share of the
+        room, the home page's cards grow with the text."""
+        rel = self.ui_zoom.relative()
+        factor, self._zoom_seen = rel / self._zoom_seen, rel
+        for column in (self.tools, self.side):
+            self.host.set_column_width(column, round(self.host.column_width(column) * factor))
+        self.host.relayout()
+        self._refresh_home()
+        self._update_hint()
 
     def _profiles_moved(self, before) -> None:
         """The profiles folder changed (Preferences): show its printers - or,
@@ -781,13 +831,15 @@ class MainWindow(QMainWindow):
         if isinstance(widths, (list, tuple)) and len(widths) == 2:
             for column, width in zip((self.tools, self.side), widths):
                 try:
-                    self.host.set_column_width(column, int(width))
+                    self.host.set_column_width(column, round(float(width) * self.ui_zoom.relative()))
                 except (TypeError, ValueError):
                     pass
 
     def _save_panel_widths(self) -> None:
-        self.store.settings["panel_widths"] = [self.host.column_width(self.tools),
-                                               self.host.column_width(self.side)]
+        """Kept as widths at the start-up zoom (the next start scales them all)."""
+        rel = self.ui_zoom.relative()
+        self.store.settings["panel_widths"] = [round(self.host.column_width(self.tools) / rel),
+                                               round(self.host.column_width(self.side) / rel)]
         self.store.save_settings()
 
     def reset_profiles(self) -> None:

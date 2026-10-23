@@ -8,9 +8,9 @@ The theme switches the whole application between an explicit light and an
 explicit dark palette (Fusion style for both, so it changes even when the
 desktop itself is dark) together with that theme's 3D view colors.  Colors
 and lighting apply at once (Cancel puts the old ones back) and are saved in
-``~/.openvat/settings.json``.  The zoom is applied through Qt's
-QT_SCALE_FACTOR, which has to be set before the QApplication exists - so
-changing it offers to restart OpenVat.
+``~/.openvat/settings.json``.  The zoom applies at once by scaling the
+interface's font (see zoom.py), and fully at the next start through Qt's
+QT_SCALE_FACTOR, which has to be set before the QApplication exists.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QComboBox
 from ..core.profiles import ProfileStore, PRINTERS
 from .lighting import Lighting
 from .theme_colors import DEFAULT_THEME_COLORS
+from .zoom import ZOOM_LEVELS
 
-ZOOM_LEVELS = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
 THEMES = ("light", "dark")
 COLOR_LABELS = {                       # the order shown in the dialog
     "background": "Background",
@@ -247,7 +247,8 @@ class PreferencesDialog(QDialog):
         current = float(store.settings.get("ui_scale", 1.0))
         self.zoom.setCurrentIndex(min(range(len(ZOOM_LEVELS)), key=lambda i: abs(ZOOM_LEVELS[i] - current)))
         form.addRow("Interface zoom", self.zoom)
-        note = QLabel("<i>Zoom scales all text, buttons and panels; it takes effect after a restart.</i>")
+        note = QLabel("<i>Zoom scales all text, buttons and panels (also Ctrl + / Ctrl − / Ctrl + mouse "
+                      "wheel); pictures and icons follow at the next start.</i>")
         note.setWordWrap(True)
         form.addRow(note)
         alay.addWidget(look)
@@ -479,13 +480,6 @@ class PreferencesDialog(QDialog):
         self.store.settings["colors"] = {
             theme: {k: v for k, v in colors[theme].items() if v != DEFAULT_THEME_COLORS[theme][k]}
             for theme in THEMES}
-        new = float(self.zoom.currentData())
-        old = float(self.store.settings.get("ui_scale", 1.0))
-        self.store.settings["ui_scale"] = new
+        self.chosen_zoom = float(self.zoom.currentData())      # the main window applies it (zoom.py)
         self.store.save_settings()
         super().accept()
-        if abs(new - old) > 1e-3 and QMessageBox.question(
-                self.parent(), "Interface zoom",
-                f"Restart OpenVat now to apply {new * 100:.0f} % zoom?\n"
-                "(Unsaved work in the scene will be lost.)") == QMessageBox.Yes:
-            restart_application()

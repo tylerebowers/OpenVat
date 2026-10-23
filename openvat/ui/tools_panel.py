@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import math
+
 import numpy as np
 from PySide6.QtCore import Qt, Signal, QPointF, QRectF, QSize, QEvent
 from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap, QColor
@@ -43,6 +45,8 @@ class ToolsPanel(SectionColumn):
     paint_mode_toggled = Signal(bool)   # dragging on the model paints where supports go / don't
     paint_options_changed = Signal()    # paint value or brush size
     supports_made = Signal(int)         # supports placed (Automatic, or one by a click)
+    move_snap_toggled = Signal(bool)    # the move arrows (and dragging on the plate) snap to 10 mm
+    rotate_snap_toggled = Signal(bool)  # the rotate rings snap to 15 degree steps
 
     def __init__(self, scene: Scene, parent=None):
         super().__init__(width=240, parent=parent)
@@ -60,10 +64,19 @@ class ToolsPanel(SectionColumn):
                                     "drag one to move the model along that axis (Ctrl: whole mm)")
         self.rotate_eye = _eye_button("Show rotate rings on the selected model:\n"
                                       "drag one to turn the model about that axis (Ctrl: 15° steps)")
+        self.move_snap = _ThemedButton(_grid_icon, "Snap to 10 mm: the move arrows and dragging a model on the "
+                                       "plate\nmove it in 10 mm steps (Ctrl while dragging: 1 mm)",
+                                       checkable=True, flat=True)
+        self.rotate_snap = _ThemedButton(_angle_icon, "Snap to 15°: the rotate rings turn the model in 15° "
+                                         "steps\n(Ctrl while dragging: 1° steps)", checkable=True, flat=True)
+        self.sections["position"].add_header_widget(self.move_snap)
         self.sections["position"].add_header_widget(self.move_eye)
+        self.sections["rotation"].add_header_widget(self.rotate_snap)
         self.sections["rotation"].add_header_widget(self.rotate_eye)
         self.move_eye.toggled.connect(self.move_tool_toggled)
         self.rotate_eye.toggled.connect(self.rotate_tool_toggled)
+        self.move_snap.toggled.connect(self.move_snap_toggled)
+        self.rotate_snap.toggled.connect(self.rotate_snap_toggled)
         self.set_pages([("Manipulation", ["position", "rotation", "scale", "edit"]),
                         ("Preparation", ["supports", "paint", "hollow"])])
         self.finish()
@@ -776,6 +789,61 @@ def _eye_icon(color: QColor) -> QIcon:
 def _eye_button(tip: str) -> QToolButton:
     """A small checkable eye for a card header (on: the tool shows)."""
     return _ThemedButton(_eye_icon, tip, checkable=True, flat=True)
+
+
+def _snap_pixmap(color: QColor, on: bool, draw, size: int = 18, ratio: float = 2.0) -> QPixmap:
+    """A header icon, dimmed when off (``draw(painter, size)`` draws it)."""
+    pm = QPixmap(int(size * ratio), int(size * ratio))
+    pm.setDevicePixelRatio(ratio)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = QColor(color)
+    if not on:
+        c.setAlphaF(0.45)
+    p.setPen(QPen(c, 1.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    draw(p, size, c)
+    p.end()
+    return pm
+
+
+def _draw_grid(p: QPainter, size: int, _c: QColor) -> None:
+    """A 3 x 3 grid: snap to the 10 mm grid."""
+    a, b = size * 0.17, size * 0.83
+    p.drawRoundedRect(QRectF(a, a, b - a, b - a), 1.5, 1.5)
+    for k in (1, 2):
+        t = a + (b - a) * k / 3
+        p.drawLine(QPointF(t, a), QPointF(t, b))
+        p.drawLine(QPointF(a, t), QPointF(b, t))
+
+
+def _draw_angle(p: QPainter, size: int, c: QColor) -> None:
+    """Two rays with an arc and ticks between them: snap to 15 degree steps."""
+    o = QPointF(size * 0.18, size * 0.80)
+    r = size * 0.64
+    p.drawLine(o, QPointF(o.x() + r, o.y()))
+    p.drawLine(o, QPointF(o.x() + r * math.cos(math.radians(60)), o.y() - r * math.sin(math.radians(60))))
+    arc = r * 0.62
+    p.drawArc(QRectF(o.x() - arc, o.y() - arc, 2 * arc, 2 * arc), 0, 60 * 16)
+    p.setPen(QPen(c, 1.0, Qt.SolidLine, Qt.RoundCap))
+    for deg in (15, 30, 45):
+        a = math.radians(deg)
+        p.drawLine(QPointF(o.x() + arc * 0.78 * math.cos(a), o.y() - arc * 0.78 * math.sin(a)),
+                   QPointF(o.x() + arc * 1.22 * math.cos(a), o.y() - arc * 1.22 * math.sin(a)))
+
+
+def _grid_icon(color: QColor) -> QIcon:
+    icon = QIcon()
+    icon.addPixmap(_snap_pixmap(color, True, _draw_grid), QIcon.Normal, QIcon.On)
+    icon.addPixmap(_snap_pixmap(color, False, _draw_grid), QIcon.Normal, QIcon.Off)
+    return icon
+
+
+def _angle_icon(color: QColor) -> QIcon:
+    icon = QIcon()
+    icon.addPixmap(_snap_pixmap(color, True, _draw_angle), QIcon.Normal, QIcon.On)
+    icon.addPixmap(_snap_pixmap(color, False, _draw_angle), QIcon.Normal, QIcon.Off)
+    return icon
 
 
 

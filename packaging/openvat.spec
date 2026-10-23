@@ -28,6 +28,10 @@ hiddenimports = (
     collect_submodules("trimesh")
     + collect_submodules("shapely")
     + collect_submodules("OpenGL")
+    # SciPy: k-d trees (support paint, pillar grouping) and sparse graphs (painted
+    # patches); imported inside functions, so listed here to be sure
+    + collect_submodules("scipy.spatial")
+    + collect_submodules("scipy.sparse")
     + ["OpenGL.platform.glx", "OpenGL.platform.egl", "OpenGL.platform.win32", "OpenGL.platform.darwin",
        "OpenGL.arrays.numpymodule", "OpenGL.arrays.ctypesarrays", "OpenGL.arrays.lists",
        "OpenGL.arrays.strings", "OpenGL.arrays.nones", "OpenGL.arrays.numbers",
@@ -41,7 +45,7 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
-    excludes=["tkinter", "matplotlib", "scipy", "pytest", "IPython", "PySide6.QtWebEngineCore",
+    excludes=["tkinter", "matplotlib", "pytest", "IPython", "PySide6.QtWebEngineCore",
               "PySide6.QtWebEngineWidgets", "PySide6.QtMultimedia", "PySide6.Qt3DCore"],
     noarchive=False,
 )

@@ -4,23 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvat"
-version = "0.4.0"
+version = "0.5.0"
 description = "OpenVat - FOSS Resin 3D Printer Slicer"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = [
+dependencies = [                       # keep in step with requirements.txt
     "PySide6>=6.6",
     "PyOpenGL>=3.1",
     "numpy>=1.24",
-    "trimesh>=4.0",
+    "trimesh>=5.0",
     "shapely>=2.0",
     "pillow>=10.0",
+    "scipy>=1.15",
     "networkx>=3.0",
-    "cadquery>=2.4",
+    "manifold3d>=3.4",
 ]
 
 [project.optional-dependencies]
+step = ["cadquery>=2.4"]               # STEP / IGES import (large; the app works without it)
 dev = ["pytest"]
 
 [project.scripts]

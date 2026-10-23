@@ -2321,7 +2321,7 @@ ev = QCloseEvent(); w.closeEvent(ev)
 out += [ev.isAccepted(), asked[-1:]]
 w.show_home(); pump()
 tiles = w.home_page.tiles
-out += [tiles["models"].value.text(), tiles["projects"].value.text(), w.home_page.prepare_btn.text()]
+out += [tiles["models"].value.text(), "projects" in tiles, w.home_page.prepare_btn.text()]
 w.home_page.prepare_btn.click()
 out += [w.pages.currentIndex() == mw.PAGE_3D]
 print(repr(out))
@@ -2336,7 +2336,7 @@ print(repr(out))
     assert out[13:16] == [1, False, True]
     assert out[16:19] == [True, True, 0]
     assert out[19:21] == [False, ["Save the changes to plate before closing?"]]
-    assert out[21:] == ["1", "1", "Prepare →", True]          # the totals; the way on at the bottom right
+    assert out[21:] == ["1", False, "Prepare →", True]        # the totals; the way on at the bottom right
 
 
 def test_running_totals():
@@ -2350,3 +2350,142 @@ def test_running_totals():
     assert [stats.shown(k, t[k]) for k in ("slices", "resin_ml", "print_s")] == ["3", "12.3 mL", "1.5 h"]
     assert stats.shown("layers", 12345) == "12,345" and stats.shown("resin_ml", 1534) == "1.53 L"
     assert stats.shown("print_s", 1800) == "30 min" and stats.shown("print_s", 400 * 3600) == "400 h"
+
+
+# --------------------------------------------------------------------------
+# release dependencies, page buttons, interface zoom, snapping
+
+def test_release_dependencies_agree():
+    """requirements.txt (what the release builds install and bundle) and
+    pyproject.toml list the same packages, every third-party module the app
+    imports is among them, and the PyInstaller spec leaves none of them out."""
+    import ast
+    import re
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    name = lambda line: re.split(r"[<>=!~ ;\[]", line.strip(), maxsplit=1)[0].lower()
+    req = {name(l) for l in (root / "requirements.txt").read_text().splitlines() if l.strip() and not l.startswith("#")}
+    pyproject = (root / "pyproject.toml").read_text()
+    deps = re.search(r"^dependencies = \[(.*?)\]", pyproject, re.S | re.M).group(1)
+    proj = {name(d) for d in re.findall(r'"([^"]+)"', deps)}
+    assert req == proj
+    module_of = {"pyside6": "PySide6", "pyopengl": "OpenGL", "pillow": "PIL"}
+    provided = {module_of.get(r, r) for r in req}
+    imported = set()
+    for path in (root / "openvat").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                imported |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                imported.add(node.module.split(".")[0])
+    third_party = {m for m in imported if m not in sys.stdlib_module_names and m != "openvat"}
+    assert third_party - provided <= {"cadquery"}          # STEP import: the optional "step" extra
+    spec = (root / "packaging" / "openvat.spec").read_text()
+    excludes = set(re.findall(r'"([\w.]+)"', re.search(r"excludes=\[(.*?)\]", spec, re.S).group(1)))
+    assert not excludes & provided                          # (parts of one, like PySide6.QtWebEngine*, may go)
+
+
+def test_snap_steps():
+    from openvat.ui.viewport3d import move_step, rotate_step
+    assert [move_step(False, False), move_step(True, False), move_step(False, True), move_step(True, True)] == \
+        [0.0, 10.0, 1.0, 1.0]
+    assert [rotate_step(False, False), rotate_step(True, False), rotate_step(False, True), rotate_step(True, True)] == \
+        [1.0, 15.0, 15.0, 1.0]
+
+
+def test_zoom_snapping_and_page_buttons_in_the_ui(tmp_path):
+    """Ctrl + wheel zooms the interface (saved, scaled fonts follow); the
+    snap buttons make arrows, rings and dragging on the plate move in 10 mm
+    and 15° steps; the page buttons are 1.5 times the size and move to a row
+    of their own when the bar is too narrow; the hint drops the mouse
+    controls before anything else."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    code = f'''
+import time
+import numpy as np, trimesh
+from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtGui import QWheelEvent, QColor
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QPushButton, QLabel, QHBoxLayout
+app = QApplication([])
+from openvat.core.profiles import ProfileStore
+from openvat.core.mesh import MeshObject
+from openvat.ui import main_window as mw, gizmos
+from openvat.ui.collapsible import HintLine
+from openvat.ui.layer_view import PageBar, PageButtons
+from openvat.ui.nav import NavButton
+from openvat.ui.zoom import relative_font
+st = ProfileStore({str(tmp_path)!r}); st.printers.append(st.printer_presets[0])
+w = mw.MainWindow(st); w.resize(1200, 800); w.show()
+def pump(n=10):
+    for _ in range(n): app.processEvents(); time.sleep(0.01)
+pump()
+out = []
+plain, big = QPushButton("Export…"), NavButton("Export…")
+out.append(round(big.sizeHint().height() / plain.sizeHint().height(), 1))
+label = QLabel("x"); relative_font(label, 2.0)
+base = app.font().pointSizeF()
+v = w.viewport
+ev = QWheelEvent(QPointF(20, 20), QPointF(v.mapToGlobal(QPoint(20, 20))), QPoint(0, 0), QPoint(0, 60),
+                 Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+d = v.camera.distance
+for _ in range(4):                                    # half notches add up: two zoom steps
+    app.sendEvent(v, ev)
+pump()
+out.append((w.ui_zoom.zoom, round(app.font().pointSizeF() / base, 2), round(label.font().pointSizeF() / base, 2),
+            st.settings["ui_scale"], v.camera.distance == d))
+w.ui_zoom.reset(); pump()
+out.append((w.ui_zoom.zoom, app.font().pointSizeF() == base))
+obj = MeshObject("box", trimesh.creation.box(extents=[20, 20, 20])); obj.drop_to_plate()
+w.scene.add(obj); w.pages.setCurrentIndex(0)
+w.tools.move_eye.setChecked(True); w.tools.rotate_eye.setChecked(True)
+w.tools.move_snap.setChecked(True); w.tools.rotate_snap.setChecked(True)
+v.camera.set_view("iso"); v.fit_view(); v.camera.distance *= 2.2; pump()
+def at(p):
+    xy, _ = gizmos.project(v._view_projection(), [p], v.width(), v.height())
+    return QPoint(int(round(xy[0][0])), int(round(xy[0][1])))
+def drag(a, b):
+    QTest.mousePress(v, Qt.LeftButton, Qt.NoModifier, a)
+    for k in range(1, 11):
+        QTest.mouseMove(v, QPoint(a.x() + (b.x() - a.x()) * k // 10, a.y() + (b.y() - a.y()) * k // 10))
+    QTest.mouseRelease(v, Qt.LeftButton, Qt.NoModifier, b)
+c = obj.position.copy()
+L = gizmos.world_size(v.camera, c, gizmos.ARROW_PX, v.height())
+drag(at(c + [L * 0.6, 0, 0]), at(c + [L * 0.6 + 26, 0, 0]))
+R = gizmos.world_size(v.camera, obj.position, gizmos.RING_PX, v.height())
+ring = gizmos.ring_points(obj.position, 2, R)
+drag(at(ring[6]), at(ring[13]))                      # 30 -> 65 degrees around Z
+w.tools.move_eye.setChecked(False); w.tools.rotate_eye.setChecked(False); pump()
+p0, top = obj.position.copy(), obj.world_bounds()[1][2]
+drag(at([p0[0], p0[1], top]), at([p0[0] + 7, p0[1] - 13, top]))
+out.append((round(float(c[0] + 30), 3) == round(float(obj.position[0] - 10), 3) or round(float(obj.position[0]), 3),
+            obj.rotation.round(3).tolist(), np.round(obj.position[:2], 3).tolist(), st.settings["view_tools"]["snap_move"]))
+bar = PageBar(QHBoxLayout(), PageButtons([("A long page button", lambda: 0), ("Another one", lambda: 0)]))
+bar.info.addWidget(QLabel("some information " * 4))
+bar.resize(2000, 80); bar.show(); pump()
+wide = bar.one_row()
+bar.resize(450, 120); pump()
+out.append((wide, bar.one_row(), bar.minimumSizeHint().width() < 2000))
+hint = HintLine(); c0 = QColor("white")
+hint.set_parts([("the mouse controls " * 5, c0, False), ("   ·   ", c0, False), ("⚠ warning", c0, True)],
+               QColor("black"), [("⚠ warning", c0, True)])
+hint.resize(2000, 30); full = hint._shown()
+hint.resize(200, 30)
+out.append((len(full), [t for t, _c, _b in hint._shown()]))
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[0] >= 1.2                                         # the page buttons: a little taller
+    assert out[1] == (1.1, 1.1, 2.2, 1.1, True) or out[1][:2] == (1.25, 1.25)
+    assert out[2] == (1.0, True)
+    x, rotation, xy, saved = out[3]
+    assert x is True or abs(x % 10) < 1e-6                      # the arrow: 10 mm steps
+    assert rotation[2] % 15 == 0 and rotation[2] != 0           # the ring: 15 degree steps
+    assert all(abs(c % 10) < 1e-6 or abs(c % 10 - 10) < 1e-6 for c in xy) and saved is True
+    assert out[4] == (True, False, True)
+    assert out[5] == (3, ["⚠ warning"])

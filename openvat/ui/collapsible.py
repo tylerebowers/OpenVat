@@ -33,6 +33,9 @@ from PySide6.QtCore import Qt, Signal, QRectF, QPointF, QSize, QPoint, QRect, QE
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont, QFontMetrics, QRegion
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QSizePolicy, QApplication
 
+from .nav import nav_gap
+from .zoom import relative_font
+
 CARD_RADIUS = 10          # px, rounded corners of the cards
 CARD_GAP = 8              # px between cards
 GUTTER = 8                # px kept on a column's outer side for the scroll pill
@@ -106,7 +109,8 @@ class CollapsibleSection(QWidget):
         self.header.clicked.connect(lambda: self.set_expanded(not self._expanded))
 
         self.summary = QLabel("")
-        self.summary.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
+        relative_font(self.summary, 0.85)               # smaller than the title, and it follows the zoom
+        self.summary.setStyleSheet("color: #888; background: transparent;")
         self.summary.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
@@ -280,16 +284,32 @@ class HintLine(QWidget):
 
     PAD = 4
 
+    SCALE = 1.2               # the hint's text, times the normal text
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._parts: list[tuple[str, QColor, bool]] = []
+        self._compact: list[tuple[str, QColor, bool]] | None = None
         self._halo = QColor(0, 0, 0, 170)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        relative_font(self, self.SCALE)
 
-    def set_parts(self, parts: list[tuple[str, QColor, bool]], halo: QColor) -> None:
+    def set_parts(self, parts: list[tuple[str, QColor, bool]], halo: QColor,
+                  compact: list[tuple[str, QColor, bool]] | None = None) -> None:
+        """``compact``: what to show instead when the whole line does not fit
+        (the warnings without the mouse controls, say)."""
         self._parts, self._halo = list(parts), QColor(halo)
+        self._compact = list(compact) if compact is not None else None
         self.updateGeometry()
         self.update()
+
+    def _width(self, parts) -> int:
+        return sum(QFontMetrics(self._font(b)).horizontalAdvance(t) for t, _c, b in parts) + 2 * self.PAD
+
+    def _shown(self) -> list[tuple[str, QColor, bool]]:
+        if self._compact is not None and self._width(self._parts) > self.width():
+            return self._compact
+        return self._parts
 
     def text(self) -> str:
         return "".join(t for t, _c, _b in self._parts)
@@ -300,8 +320,7 @@ class HintLine(QWidget):
         return f
 
     def sizeHint(self) -> QSize:
-        w = sum(QFontMetrics(self._font(b)).horizontalAdvance(t) for t, _c, b in self._parts)
-        return QSize(w + 2 * self.PAD, self.fontMetrics().height() + 2 * self.PAD)
+        return QSize(self._width(self._parts), self.fontMetrics().height() + 2 * self.PAD)
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
@@ -310,9 +329,10 @@ class HintLine(QWidget):
         fm = self.fontMetrics()
         base = (self.height() + fm.ascent() - fm.descent()) / 2
         halo = QPainterPath()
-        x = float(self.PAD)
+        shown = self._shown()
+        x = float(self.PAD) + max(self.width() - self._width(shown), 0) / 2      # centered
         runs = []
-        for text, color, bold in self._parts:
+        for text, color, bold in shown:
             font = self._font(bold)
             halo.addText(x, base, font, text)
             runs.append((x, text, color, font))
@@ -339,8 +359,13 @@ class _TabBar(QWidget):
         self._hover = -1
         self.setMouseTracking(True)
         self.setCursor(Qt.PointingHandCursor)
-        self._bold = QFont(self.font())
-        self._bold.setBold(True)
+
+    @property
+    def _bold(self) -> QFont:
+        """The current tab's font (from the widget's, so it follows the zoom)."""
+        f = QFont(self.font())
+        f.setBold(True)
+        return f
 
     def sizeHint(self) -> QSize:
         fm = QFontMetrics(self._bold)
@@ -685,27 +710,28 @@ class ViewportHost(QWidget):
         m = self.MARGIN
         w, h = self.width(), self.height()
         self.viewport.setGeometry(0, 0, w, h)
+        g = nav_gap()                                 # the buttons float this far off the edges
         band = 0                                      # room kept free along the bottom
         left, right = m, w - m                        # what the hint has between the buttons
         if self.action is not None:
             ah = self.action.sizeHint().height()
             aw = self.action.sizeHint().width()
-            self.action.setGeometry(w - m - aw, h - m - ah, aw, ah)
-            band = ah + m
-            right = w - m - aw - m
+            self.action.setGeometry(w - g - aw, h - g - ah, aw, ah)
+            band = ah + g
+            right = w - g - aw - m
         if self.left_action is not None:
             lh = self.left_action.sizeHint().height()
             lw = self.left_action.sizeHint().width()
-            self.left_action.setGeometry(m, h - m - lh, lw, lh)
-            band = max(band, lh + m)
-            left = m + lw + m
-        if self.hint is not None:                     # in the middle (left-aligned if it doesn't fit)
-            hh = max(self.hint.sizeHint().height(), band - m)
+            self.left_action.setGeometry(g, h - g - lh, lw, lh)
+            band = max(band, lh + g)
+            left = g + lw + m
+        if self.hint is not None:                     # in the middle (left-aligned if it doesn't fit), level
+            hh = max(self.hint.sizeHint().height(), band - g)        # with the buttons
             room = max(right - left, 10)
             hw = min(self.hint.sizeHint().width(), room)
             x = max(left, min((w - hw) // 2, right - hw))
-            self.hint.setGeometry(x, h - m - hh, hw, hh)
-            band = max(band, hh + m)
+            self.hint.setGeometry(x, h - (g if band else m) - hh, hw, hh)
+            band = max(band, hh + g)
         avail = max(h - 2 * m - band, 50)
         for col, x in ((self.left, self.EDGE), (self.right, w - self.right.width() - self.EDGE)):
             col.setGeometry(x, m, col.width(), min(col.natural_height(), avail))

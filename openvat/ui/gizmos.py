@@ -22,9 +22,9 @@ HOVER_COLOR = (1.0, 0.80, 0.22, 1.0)
 FACE_COLOR = (0.15, 0.78, 0.86, 0.55)      # "lay on face" candidates (stands out from the model colors)
 FACE_HOVER_COLOR = (0.62, 0.96, 1.0, 0.90)
 
-ARROW_PX = 95          # arrow length on screen
+ARROW_PX = 190         # arrow length on screen
 ARROW_START = 0.16     # the shaft starts this far out (share of the length): the center stays clear
-RING_PX = 80           # ring radius on screen
+RING_PX = 160          # ring radius on screen
 PICK_PX = 9            # how close (px) the mouse has to be to grab a handle
 RING_SAMPLES = 72
 

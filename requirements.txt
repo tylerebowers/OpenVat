@@ -1,10 +1,12 @@
+# What OpenVat needs to run (and what the release builds bundle).
+# Keep in step with [project] dependencies in pyproject.toml.
 PySide6>=6.6
 PyOpenGL>=3.1
 numpy>=1.24
-trimesh>=4.0
+trimesh>=5.0
 shapely>=2.0
 pillow>=10.0
+scipy>=1.15
 networkx>=3.0
-manifold3d>3.4
-scipy>1.15
-trimesh>=5.0
+manifold3d>=3.4
+# optional: STEP / IGES import (pip install cadquery) - not bundled

@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlide
 from ..core.scene import Scene
 from ..core.slicer import SliceResult
 from ..core.voxels import build_volume, VoxelVolume, VoxelFaces, pack_faces
-from .layer_view import PageButtons, separator, ISLAND_RED
+from .layer_view import PageBar, PageButtons, separator, ISLAND_RED
 from .usb_export import UsbButton
 from .view_cube import ViewCube
 from .viewport3d import Viewport3D, GL_INFO, build_program, software_renderer
@@ -251,16 +251,31 @@ class _Worker(QObject):
     def __init__(self, result, volume):
         super().__init__()
         self.result, self.volume = result, volume
+        self.cancelled = False                   # set from the GUI thread: stop at the next step
+
+    def _step(self, phase: str):
+        def report(done: int, total: int) -> None:
+            if self.cancelled:
+                raise _Cancelled()
+            self.progress.emit(phase, done, total)
+        return report
 
     @Slot()
     def run(self) -> None:
         try:
-            vol = self.volume or build_volume(self.result, 1, lambda d, t: self.progress.emit("Layers", d, t))
-            faces = VoxelFaces.build(vol.faces(progress=lambda d, t: self.progress.emit("Faces", d, t)), vol)
+            vol = self.volume or build_volume(self.result, 1, self._step("Layers"))
+            faces = VoxelFaces.build(vol.faces(progress=self._step("Faces")), vol)
+        except _Cancelled:
+            self.failed.emit("")
+            return
         except Exception as exc:
             self.failed.emit(str(exc))
             return
         self.finished.emit(self.result, vol, faces)
+
+
+class _Cancelled(Exception):
+    """The preview is no longer wanted (OpenVat is closing)."""
 
 
 class VoxelViewPage(QWidget):
@@ -316,12 +331,13 @@ class VoxelViewPage(QWidget):
         self.slow = QLabel("")
         self.slow.setStyleSheet(f"color: {ISLAND_RED}; font-weight: bold;")
         bottom.addWidget(self.slow)
+        bottom.addStretch(1)                       # (on a row of its own: packed to the left)
         self.usb_btn = UsbButton()                 # shows while a USB drive is plugged in
-        bottom.addLayout(PageButtons([("← Back to 3D view", self.back_requested),
-                                      ("← Layers", self.layers_requested),
-                                      ("Export…", self.export_requested),
-                                      self.usb_btn]), stretch=1)
-        root.addLayout(bottom)
+        self.bar = PageBar(bottom, PageButtons([("← Back to 3D view", self.back_requested),
+                                                ("← Layers", self.layers_requested),
+                                                ("Export…", self.export_requested),
+                                                self.usb_btn]))
+        root.addWidget(self.bar)
 
         self.slider.valueChanged.connect(self.spin.setValue)
         self.spin.valueChanged.connect(self.slider.setValue)
@@ -372,6 +388,15 @@ class VoxelViewPage(QWidget):
         self._thread.finished.connect(self._thread_done)
         self._thread.start()
 
+    def stop(self) -> None:
+        """Before the window closes: end a build that is still running (a
+        QThread must not be destroyed while it runs)."""
+        self._again = False
+        if self._thread is not None and self._thread.isRunning():
+            self._worker.cancelled = True
+            self._thread.quit()
+            self._thread.wait(10000)
+
     @Slot()
     def _thread_done(self) -> None:
         if self._again:
@@ -407,7 +432,8 @@ class VoxelViewPage(QWidget):
     @Slot(str)
     def _failed(self, message: str) -> None:
         self.busy.setVisible(False)
-        self.summary.setText(f"Voxel preview failed: {message}")
+        if message:                                # "" = stopped on purpose (stop)
+            self.summary.setText(f"Voxel preview failed: {message}")
 
     def _update_summary(self) -> None:
         vol, faces = self.volume, self.viewport.faces

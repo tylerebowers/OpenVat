@@ -10,7 +10,9 @@ Responsibilities:
 
 Mouse: left = select / drag, right = orbit, middle (or shift+left) = pan,
 wheel = zoom.  Dragging an arrow moves the model along that axis, a ring
-turns it about that axis (Ctrl: whole mm / 15 degree steps).
+turns it about that axis - in 10 mm / 15 degree steps while snapping is on
+(the grid and angle buttons on the Position and Rotation cards); Ctrl:
+1 mm steps, and 15 degree steps (1 degree while snapping).
 """
 
 from __future__ import annotations
@@ -281,6 +283,8 @@ class Viewport3D(QOpenGLWidget):
         self.see_through = False                # View -> Semi-transparent models
         self._hover = None                      # ("move" | "rotate", axis) or ("face", index) under the mouse
         self._gizmo_drag: dict | None = None    # while an arrow or ring is dragged
+        self.snap_move = False                  # arrows and dragging on the plate: 10 mm steps
+        self.snap_rotate = False                # rings: 15 degree steps
         self.paint_mode = False                 # dragging on a model paints support paint
         self.paint_value = ENFORCE
         self.brush_radius = 2.0                 # mm
@@ -857,7 +861,7 @@ class Viewport3D(QOpenGLWidget):
             return
         kind, axis = d["handle"]
         e = np.eye(3)[axis]
-        fine = not (modifiers & Qt.ControlModifier)
+        ctrl = bool(modifiers & Qt.ControlModifier)
         if kind == "move":
             if d["t0"] is None:                              # looking straight along the axis
                 return
@@ -867,8 +871,11 @@ class Viewport3D(QOpenGLWidget):
                 return
             target = d["start_pos"].copy()
             target[axis] += t - d["t0"]
-            if not fine:
-                target[axis] = round(target[axis])           # whole mm
+            step = move_step(self.snap_move, ctrl)
+            if step and axis == 2:                           # up and down: the lowest point on the steps
+                target[2] = round((target[2] + d["bottom"]) / step) * step - d["bottom"]
+            elif step:                                       # across: the center on the grid
+                target[axis] = round(target[axis] / step) * step
             if axis == 2:
                 target[2] = max(target[2], -d["bottom"])     # never below the plate
             if np.allclose(target, obj.position):
@@ -889,7 +896,7 @@ class Viewport3D(QOpenGLWidget):
                 sign = d["sign"]
             d["turned"] += gizmos.unwrap(a - d["last"])
             d["last"] = a
-            step = 1.0 if fine else 15.0
+            step = rotate_step(self.snap_rotate, ctrl)
             degrees = round(math.degrees(d["turned"]) * sign / step) * step
             angles = rotated_about(d["start_rot"], e, degrees)
             if np.allclose(angles, obj.rotation):
@@ -1179,6 +1186,9 @@ class Viewport3D(QOpenGLWidget):
                 target = self._drag_target
                 new_xy = hit[:2] + self._drag_offset
                 if isinstance(target, MeshObject):
+                    step = move_step(self.snap_move, bool(e.modifiers() & Qt.ControlModifier))
+                    if step:                                 # its center on the grid
+                        new_xy = np.round(new_xy / step) * step
                     self.scene.move_object(target, [new_xy[0], new_xy[1], target.position[2]])
                 else:
                     self._drag_support(target, new_xy)
@@ -1219,6 +1229,20 @@ class Viewport3D(QOpenGLWidget):
         sup.tip[:2] = xy
         if not snap_support(sup, obj, self.scene.support_settings):
             sup.restore(before)
+
+
+SNAP_MM = 10.0          # the move snap (Position card's grid button)
+SNAP_DEGREES = 15.0     # the rotate snap (Rotation card's angle button)
+
+
+def move_step(snapping: bool, ctrl: bool) -> float:
+    """mm steps for a move: 10 while snapping, 1 with Ctrl, else free (0)."""
+    return 1.0 if ctrl else SNAP_MM if snapping else 0.0
+
+
+def rotate_step(snapping: bool, ctrl: bool) -> float:
+    """Degree steps for a turn: 15 while snapping, else 1; Ctrl swaps them."""
+    return (1.0 if snapping else SNAP_DEGREES) if ctrl else (SNAP_DEGREES if snapping else 1.0)
 
 
 def _ray_hit(mesh: trimesh.Trimesh, origin: np.ndarray, direction: np.ndarray):

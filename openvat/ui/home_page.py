@@ -12,7 +12,7 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QSize, QRectF, QUrl
+from PySide6.QtCore import Qt, Signal, QSize, QRectF, QUrl, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen, QColor, QFont, QDesktopServices
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QFrame,
                                QMenu, QSizePolicy, QGridLayout)
@@ -21,10 +21,16 @@ from .. import APP_NAME, __version__
 from ..core.profiles import RESOURCES
 from ..core.project import read_thumbnail
 from ..core.stats import STATS, shown
+from .nav import NavButton, nav_gap
+from .zoom import relative_font, scaled
 
 CARD_RADIUS = 10
-FILE_CARD = QSize(190, 150)
-PROJECT_CARD = QSize(260, 220)
+FILE_CARD = QSize(240, 190)            # at 100 % zoom (``scaled`` follows the zoom)
+PROJECT_CARD = QSize(340, 270)
+
+
+def _scaled(size: QSize) -> QSize:
+    return QSize(scaled(size.width()), scaled(size.height()))
 
 
 def _ago(seconds: float) -> str:
@@ -66,12 +72,13 @@ class Card(QFrame):
         self.art = QWidget()
         self.art.setAttribute(Qt.WA_TransparentForMouseEvents)
         lay.addWidget(self.art, 1)
-        name = QLabel(self.fontMetrics().elidedText(Path(path).stem, Qt.ElideRight, size.width() - 20))
-        bold = QFont(name.font())
-        bold.setBold(True)
-        name.setFont(bold)
-        sub = QLabel(self.fontMetrics().elidedText(detail, Qt.ElideMiddle, size.width() - 20))
-        sub.setStyleSheet("color: #888; font-size: 11px;")
+        name = QLabel()
+        relative_font(name, 1.0, True)
+        name.setText(name.fontMetrics().elidedText(Path(path).stem, Qt.ElideRight, size.width() - 20))
+        sub = QLabel()
+        relative_font(sub, 0.85)
+        sub.setText(sub.fontMetrics().elidedText(detail, Qt.ElideMiddle, size.width() - 20))
+        sub.setStyleSheet("color: #888;")
         for w in (name, sub):
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
             lay.addWidget(w)
@@ -139,10 +146,11 @@ class CardRow(QScrollArea):
 
     def __init__(self, card_size: QSize, empty_text: str, parent=None):
         super().__init__(parent)
+        self.card_size = card_size
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setFixedHeight(card_size.height() + 22)
+        self.setFixedHeight(_scaled(card_size).height() + 22)
         self.setStyleSheet("QScrollArea { background: transparent; }")
         self.inner = QWidget()
         self.inner.setAutoFillBackground(False)
@@ -164,6 +172,7 @@ class CardRow(QScrollArea):
                 w.setParent(None)
                 w.deleteLater()
         self.cards = cards
+        self.setFixedHeight(_scaled(self.card_size).height() + 22)       # (the zoom may have changed)
         for c in cards:
             self.row.addWidget(c)
         if not cards:
@@ -190,15 +199,13 @@ class StatTile(QFrame):
         lay.setContentsMargins(14, 10, 14, 10)
         lay.setSpacing(0)
         self.value = QLabel("0")
-        f = QFont(self.value.font())
-        f.setBold(True)
-        f.setPointSizeF(f.pointSizeF() * 1.6)
-        self.value.setFont(f)
+        relative_font(self.value, 1.6, True)
         self.caption = QLabel(label)
         self.caption.setStyleSheet("color: #888;")
         self.caption.setWordWrap(True)
         self.detail = QLabel("")
-        self.detail.setStyleSheet("color: #888; font-size: 11px;")
+        relative_font(self.detail, 0.85)
+        self.detail.setStyleSheet("color: #888;")
         self.detail.hide()
         for w in (self.value, self.caption, self.detail):
             lay.addWidget(w)
@@ -287,12 +294,10 @@ class HomePage(QWidget):
         lay.addStretch(1)
 
         # like the other pages: the button to move on at the bottom right
-        bar = QHBoxLayout()
-        bar.setContentsMargins(6, 4, 6, 6)
+        bar = self._bar = QHBoxLayout()
+        self._fit_gap()
         bar.addStretch(1)
-        self.prepare_btn = QPushButton("Prepare →")
-        self.prepare_btn.setMinimumHeight(32)
-        self.prepare_btn.setStyleSheet("padding: 4px 14px; font-weight: bold;")
+        self.prepare_btn = NavButton("Prepare →", bold=True)
         self.prepare_btn.setToolTip("The build plate: place, support and slice the models")
         self.prepare_btn.clicked.connect(self.back_requested)
         bar.addWidget(self.prepare_btn)
@@ -301,10 +306,7 @@ class HomePage(QWidget):
     @staticmethod
     def _heading(text: str) -> QLabel:
         label = QLabel(text)
-        f = QFont(label.font())
-        f.setBold(True)
-        f.setPointSizeF(f.pointSizeF() * 1.25)
-        label.setFont(f)
+        relative_font(label, 1.25, True)
         label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         return label
 
@@ -318,7 +320,7 @@ class HomePage(QWidget):
                 continue
             pic = self._picture(path, file_thumbs.get(path))
             ext = Path(path).suffix.lstrip(".").upper() or "?"
-            c = Card(path, FILE_CARD, pic, ext, self._detail(path, folder=True))
+            c = Card(path, _scaled(FILE_CARD), pic, ext, self._detail(path, folder=True))
             c.clicked.connect(self.open_file)
             c.remove_requested.connect(lambda p: self.remove_recent.emit("files", p))
             cards.append(c)
@@ -327,11 +329,21 @@ class HomePage(QWidget):
         for path in projects:
             if not os.path.isfile(path):
                 continue
-            c = Card(path, PROJECT_CARD, self._picture(path), "OV", self._detail(path, folder=False))
+            c = Card(path, _scaled(PROJECT_CARD), self._picture(path), "OV", self._detail(path, folder=False))
             c.clicked.connect(self.open_project)
             c.remove_requested.connect(lambda p: self.remove_recent.emit("projects", p))
             cards.append(c)
         self.projects_row.set_cards(cards)
+
+    def _fit_gap(self) -> None:
+        """The Prepare button floats NAV_GAP off the bottom right corner."""
+        g = nav_gap()
+        self._bar.setContentsMargins(6, 4, g, g)
+
+    def changeEvent(self, e) -> None:
+        super().changeEvent(e)
+        if e.type() == QEvent.FontChange:              # the zoom changed
+            self._fit_gap()
 
     def _place_tiles(self, columns: int) -> None:
         """The totals in one row on a wide window, in two or four on narrower ones."""
@@ -342,13 +354,13 @@ class HomePage(QWidget):
             self.grid.removeWidget(tile)
         for i, tile in enumerate(self.tiles.values()):
             self.grid.addWidget(tile, i // columns, i % columns)
-        for col in range(8):
+        for col in range(len(self.tiles)):
             self.grid.setColumnStretch(col, 1 if col < columns else 0)
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         w = self.width()
-        self._place_tiles(8 if w >= 1180 else 4 if w >= 640 else 2)
+        self._place_tiles(len(self.tiles) if w >= scaled(1180) else 4 if w >= scaled(640) else 2)
 
     def set_totals(self, totals: dict) -> None:
         """The running totals (core/stats.py)."""
