@@ -35,7 +35,10 @@ cp "$APPDIR/openvat.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/openvat.p
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(dirname "$(readlink -f "$0")")"
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb;wayland}"
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="xcb;wayland"
+    export OPENVAT_SET_QPA=1          # programs OpenVat starts don't get it (openvat/core/sysenv.py)
+fi
 exec "$HERE/usr/bin/OpenVat" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"

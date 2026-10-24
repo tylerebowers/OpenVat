@@ -20,8 +20,8 @@ Pillars can **split**: nearby contacts share one trunk that rises to a split
 bulb and branches out to each contact's pivot (``Support.trunk``).
 
 Every rod, foot, arm and tip is an octagon (``SIDES``) with the area of the
-round rod its diameter setting describes, and bulbs are icosahedra: few
-triangles to draw and slice, as strong as round ones.
+round rod its diameter setting describes: few triangles to draw and slice,
+as strong as round ones.  The joint balls are round (``BULB_SUBDIVISIONS``).
 
 **nook** - a small pillar for caves and other pockets with no way down to
 the plate: it stands on the part itself (``Support.foot``).  A thin rod
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, asdict, fields
+from functools import lru_cache
 from itertools import count
 
 import numpy as np
@@ -417,12 +418,21 @@ def _safe(op, a, b):
             return _valid(op(a, b, grid_size=1e-6))
 
 
+BULB_SUBDIVISIONS = 2     # joint balls: an icosahedron split twice (320 faces) - round, still light
+BULB_SIZE = 1.1           # ball radius / rod radius: covers the octagonal rods' corners (1.03 r)
+
+
 def _bulb(center, r: float) -> trimesh.Trimesh:
-    """A joint ball for rods of radius r: an icosahedron (20 faces) just big
-    enough that its flat faces sit about where the rods' sides do."""
-    m = trimesh.creation.icosphere(subdivisions=0, radius=1.2 * r)
-    m.apply_translation(np.asarray(center, float))
+    """A joint ball for rods of radius r, a little bigger than the rods so
+    their ends disappear inside it.  The unit ball is made once."""
+    m = _unit_ball().copy()
+    m.apply_transform(trimesh.transformations.scale_and_translate(BULB_SIZE * r, np.asarray(center, float)))
     return m
+
+
+@lru_cache(maxsize=1)
+def _unit_ball() -> trimesh.Trimesh:
+    return trimesh.creation.icosphere(subdivisions=BULB_SUBDIVISIONS, radius=1.0)
 
 
 # --------------------------------------------------------------------------

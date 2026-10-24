@@ -2489,3 +2489,96 @@ print(repr(out))
     assert all(abs(c % 10) < 1e-6 or abs(c % 10 - 10) < 1e-6 for c in xy) and saved is True
     assert out[4] == (True, False, True)
     assert out[5] == (3, ["⚠ warning"])
+
+
+# --------------------------------------------------------------------------
+# programs started from a release build, round joints, add or replace
+
+def test_programs_started_from_a_release_build_get_the_desktops_libraries(monkeypatch):
+    """A PyInstaller build puts its own folder (old GLib, D-Bus, OpenSSL
+    copies) first in LD_LIBRARY_PATH and its own Qt in QT_PLUGIN_PATH;
+    udisksctl, gio and xdg-open must not inherit that (in the AppImage they
+    failed, so USB drives could not be mounted or ejected)."""
+    import os
+    import sys
+    from openvat.core import sysenv
+    bundle = os.path.join(os.sep, "tmp", ".mount_OpenVat", "usr", "bin", "_internal")
+    env = {"LD_LIBRARY_PATH": bundle + os.pathsep + "/opt/lib", "LD_LIBRARY_PATH_ORIG": "/opt/lib",
+           "QT_PLUGIN_PATH": os.path.join(bundle, "PySide6", "Qt", "plugins"),
+           "QML2_IMPORT_PATH": os.path.join(bundle, "PySide6", "Qt", "qml"),
+           "QT_QPA_PLATFORM": "xcb;wayland", "OPENVAT_SET_QPA": "1", "HOME": "/home/me", "PATH": "/usr/bin",
+           "_PYI_PARENT_PROCESS_LEVEL": "1", "_PYI_ARCHIVE_FILE": os.path.join(bundle, "..", "OpenVat")}
+    assert sysenv.child_env(env) == env                         # from source: untouched
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", bundle, raising=False)
+    assert sysenv.child_env(env) == {"LD_LIBRARY_PATH": "/opt/lib", "HOME": "/home/me", "PATH": "/usr/bin"}
+    unset = {"LD_LIBRARY_PATH": bundle, "QT_QPA_PLATFORM": "wayland", "QT_PLUGIN_PATH": "/mine:" + bundle}
+    assert sysenv.child_env(unset) == {"QT_QPA_PLATFORM": "wayland", "QT_PLUGIN_PATH": "/mine:" + bundle}
+    seen = {}
+    def fake_run(args, **kw):
+        seen.update(kw["env"])
+        return __import__("subprocess").CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(os, "environ", dict(env))
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from openvat.core import usb
+    assert usb._run(["udisksctl", "status"]) == (True, "")
+    assert seen.get("LD_LIBRARY_PATH") == "/opt/lib" and "QT_PLUGIN_PATH" not in seen
+
+
+def test_support_joints_are_round():
+    from openvat.core.supports import BULB_SIZE, SIDES, Support, SupportSettings, _bulb, _equal_area
+    ball = _bulb([1.0, 2.0, 3.0], 0.8)
+    assert len(ball.faces) >= 320 and ball.is_watertight
+    d = np.linalg.norm(ball.vertices - [1.0, 2.0, 3.0], axis=1)
+    assert np.allclose(d, BULB_SIZE * 0.8)                      # a sphere, not a spiky icosahedron
+    corner = 0.8 * _equal_area(SIDES)                           # the octagonal rods' corners
+    assert BULB_SIZE * 0.8 * np.cos(np.radians(15)) > corner * 0.99   # the ball covers the rod ends
+    m = Support(tip=np.array([0.0, 0.0, 10.0])).to_mesh(SupportSettings())
+    assert m.is_volume or len(m.faces) > 320
+
+
+def test_recent_file_onto_a_full_plate_asks_add_or_replace(tmp_path):
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    a, b = tmp_path / "first.stl", tmp_path / "second.stl"
+    trimesh.creation.box(extents=[10, 10, 10]).export(a)
+    trimesh.creation.icosphere(radius=6).export(b)
+    code = f'''
+import time
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication([])
+from openvat.core.profiles import ProfileStore
+from openvat.ui import main_window as mw
+st = ProfileStore({str(tmp_path / "home")!r}); st.printers.append(st.printer_presets[0])
+w = mw.MainWindow(st); w.show()
+answer, asked = ["Cancel"], []
+def fake_exec(self):
+    asked.append(self.text())
+    self._picked = next((b for b in self.buttons() if b.text() == answer[0]), None)
+    return 0
+QMessageBox.exec = fake_exec
+QMessageBox.clickedButton = lambda self: getattr(self, "_picked", None)
+out = []
+w.home_page.open_file.emit({str(a)!r})                   # empty plate: no question
+out.append((len(asked), [o.name for o in w.scene.objects]))
+w.home_page.open_file.emit({str(b)!r})                   # Cancel: nothing changes
+out.append((len(asked), [o.name for o in w.scene.objects]))
+answer[0] = "Add to the build plate"
+w.home_page.open_file.emit({str(b)!r})
+out.append(sorted(o.name for o in w.scene.objects))
+answer[0] = "Replace all parts"
+w.home_page.open_file.emit({str(a)!r})
+out.append([o.name for o in w.scene.objects])
+w.undo(); w.undo()                                       # the replaced parts come back
+out.append(sorted(o.name for o in w.scene.objects))
+out.append(asked[0])
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[0] == (0, ["first"]) and out[1] == (1, ["first"])
+    assert out[2] == ["first", "second"] and out[3] == ["first"]
+    assert out[4] == ["first", "second"]
+    assert out[5].startswith("The build plate has 1 part on it.") and "Add second to it, or replace it?" in out[5]

@@ -45,6 +45,14 @@ def main(argv: list[str] | None = None) -> int:
     from .ui.viewport3d import probe_gl       # imports PyOpenGL - only now
     probe_gl()                                # which GPU / renderer (see Help -> About)
 
+    # release builds: programs OpenVat starts (udisksctl, gio, xdg-open, the
+    # file manager) get the desktop's own libraries and Qt again, not the
+    # bundle's (see core/sysenv.py); Qt keeps the plugin folders it found
+    from PySide6.QtCore import QCoreApplication
+    from .core.sysenv import restore_for_children
+    QCoreApplication.setLibraryPaths(QCoreApplication.libraryPaths())
+    restore_for_children()
+
     from .ui.main_window import MainWindow   # after QApplication exists
     from .ui.side_panel import add_first_printer
 

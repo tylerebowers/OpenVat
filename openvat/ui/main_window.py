@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         for page in (self.layer_page, self.voxel_page):
             page.usb_btn.export_to.connect(self.export_to_usb)
         self.home_page = HomePage()
-        self.home_page.open_file.connect(self.load_model)
+        self.home_page.open_file.connect(self._open_recent_file)
         self.home_page.open_project.connect(self.open_project)
         self.home_page.new_project.connect(self.new_project)
         self.home_page.open_model_requested.connect(self.open_models)
@@ -347,12 +347,38 @@ class MainWindow(QMainWindow):
         else:
             self.load_model(path)
 
-    def load_model(self, path: str) -> None:
+    def _open_recent_file(self, path: str) -> None:
+        """A model clicked on the home page: with parts on the plate already,
+        ask whether it joins them or replaces them all."""
+        n = len(self.scene.objects)
+        if not n:
+            self.load_model(path)
+            return
+        box = QMessageBox(QMessageBox.Question, "Open model",
+                          f"The build plate has {n} part{'s' if n != 1 else ''} on it.\n\n"
+                          f"Add {Path(path).stem} to {'them' if n != 1 else 'it'}, or replace "
+                          f"{'all of them' if n != 1 else 'it'}?", parent=self)
+        add = box.addButton("Add to the build plate", QMessageBox.AcceptRole)
+        replace = box.addButton("Replace all parts", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(add)
+        box.setInformativeText("Replacing removes their supports too (Edit → Undo brings them back).")
+        box.exec()
+        if box.clickedButton() is add:
+            self.load_model(path)
+        elif box.clickedButton() is replace:
+            self.load_model(path, replace=True)
+
+    def load_model(self, path: str, replace: bool = False) -> None:
+        """Add a model file's parts to the plate (``replace``: instead of
+        everything on it - one undo step brings it back)."""
         try:
             objects = load_file(path)
         except Exception as exc:
             QMessageBox.critical(self, "Could not open model", f"{Path(path).name}\n\n{exc}")
             return
+        if replace and self.scene.objects:
+            self.scene.clear()
         for obj in objects:
             self.scene.add(obj)
         if len(self.scene.objects) > 1:

@@ -172,7 +172,8 @@ class CardRow(QScrollArea):
                 w.setParent(None)
                 w.deleteLater()
         self.cards = cards
-        self.setFixedHeight(_scaled(self.card_size).height() + 22)       # (the zoom may have changed)
+        empty = self.empty.sizeHint().height() + 12                   # no cards: just the line of text
+        self.setFixedHeight(_scaled(self.card_size).height() + 22 if cards else empty)   # (or the zoom changed)
         for c in cards:
             self.row.addWidget(c)
         if not cards:

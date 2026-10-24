@@ -23,6 +23,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from .sysenv import child_env
+
 
 @dataclass(frozen=True)
 class Drive:
@@ -167,7 +169,7 @@ def _run(args: list[str], timeout: float = 30.0) -> tuple[bool, str]:
         kw = {}
         if sys.platform == "win32":
             kw["creationflags"] = 0x08000000           # CREATE_NO_WINDOW
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, **kw)
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=child_env(), **kw)
         return p.returncode == 0, (p.stdout + p.stderr).strip()
     except (OSError, subprocess.SubprocessError) as exc:
         return False, str(exc)
