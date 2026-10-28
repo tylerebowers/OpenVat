@@ -2582,3 +2582,237 @@ print(repr(out))
     assert out[2] == ["first", "second"] and out[3] == ["first"]
     assert out[4] == ["first", "second"]
     assert out[5].startswith("The build plate has 1 part on it.") and "Add second to it, or replace it?" in out[5]
+
+
+# --------------------------------------------------------------------------
+# 3Dconnexion SpaceMouse
+
+def _spnav_server(tmp_path):
+    """A stand-in for spacenavd: a Unix socket SpnavSource finds through
+    SPNAV_SOCKET."""
+    import socket
+    path = str(tmp_path / "spnav.sock")
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(path)
+    srv.listen(1)
+    return srv, path
+
+
+def _spnav_event(*data):
+    import struct
+    return struct.pack("=8i", *(list(data) + [0] * (8 - len(data))))
+
+
+def test_spacemouse_settings_and_response():
+    from openvat.core.spacemouse import SpaceMouseSettings, normalized, DEAD_ZONE, FULL_SCALE
+    s = SpaceMouseSettings()
+    assert (s.enabled, s.action(0), s.action(1), s.action(2)) == (True, "home", "turn90", "none")
+    back = SpaceMouseSettings.from_dict(dict(s.to_dict(), speed=9, invert_zoom=1, button1="top",
+                                             button2="format the disk", junk=3))
+    assert back.speed == 5.0 and back.invert_zoom is True and back.button1 == "top" and back.button2 == "turn90"
+    assert SpaceMouseSettings.from_dict(None) == SpaceMouseSettings()
+    assert SpaceMouseSettings.from_dict({"speed": "fast"}).speed == 1.0
+    assert SpaceMouseSettings.from_dict(s.to_dict()) == s
+    a = normalized([0, FULL_SCALE * DEAD_ZONE * 0.9, -FULL_SCALE, 2 * FULL_SCALE, FULL_SCALE * 0.5, -FULL_SCALE * 0.5])
+    assert a[:4] == (0.0, 0.0, -1.0, 1.0)                     # resting hand: nothing; beyond full: full
+    assert 0 < a[4] < 0.5 and a[5] == -a[4]                    # gentler than linear near the middle
+
+
+def test_spacemouse_moves_the_view_like_the_cap():
+    """Object mode: the model follows the cap (spacenavd's axes: x right,
+    y up, z away; rx tilts the top toward you, ry twists counter-clockwise)."""
+    import numpy as np
+    from openvat.core.spacemouse import SpaceMouseSettings, navigation
+    from openvat.ui.camera import OrbitCamera
+    s = SpaceMouseSettings()
+
+    def moved(axes, settings=s):
+        cam = OrbitCamera()
+        cam.target = np.zeros(3)
+        cam.yaw, cam.pitch = 0.0, 20.0                        # from the front, a little above
+        nav = navigation(axes, settings, 0.5)
+        cam.pan(*nav["pan"]); cam.zoom(nav["zoom"]); cam.orbit_by(nav["yaw"], nav["pitch"])
+        return cam, nav
+
+    cam, _ = moved((1, 0, 0, 0, 0, 0))                         # pushed right: the model goes right,
+    assert cam.target[0] < 0                                   # so the view looks further left
+    cam, _ = moved((0, 1, 0, 0, 0, 0))                         # lifted: the model goes up
+    assert cam.target[2] < 0
+    cam, _ = moved((0, 0, -1, 0, 0, 0))                        # pulled toward you: closer
+    assert cam.distance < OrbitCamera().distance
+    cam, _ = moved((0, 0, 0, 1, 0, 0))                         # top tilted toward you: see more of the top
+    assert cam.pitch > 20
+    cam, _ = moved((0, 0, 0, 0, 1, 0))                         # twisted counter-clockwise: so is the model,
+    assert 180 < cam.yaw < 360                                 # the camera goes clockwise around it
+    _, nav = moved((0, 0, 0, 0, 0, 1))                         # the twist about the line of sight: nothing
+    assert not any([*nav["pan"], nav["zoom"], nav["yaw"], nav["pitch"]])
+    flipped = SpaceMouseSettings(invert_pan=True, invert_zoom=True, invert_tilt=True, invert_spin=True, speed=2)
+    a, b = navigation((0.5, 0.2, 0.3, 0.4, 0.6, 0), s, 0.1), navigation((0.5, 0.2, 0.3, 0.4, 0.6, 0), flipped, 0.1)
+    assert all(np.isclose(b[k], -2 * np.asarray(a[k])).all() for k in a)
+
+
+def test_spacemouse_through_spacenavd(tmp_path, monkeypatch):
+    import sys
+    import time
+    from openvat.core import spacemouse as sm
+    srv, path = _spnav_server(tmp_path)
+    monkeypatch.setenv("SPNAV_SOCKET", path)
+    source, status = sm.connect()
+    assert isinstance(source, sm.SpnavSource) and path in status
+    conn, _ = srv.accept()
+    data = _spnav_event(0, 350, 0, -175, 0, 0, 0, 16) + _spnav_event(1, 1) + _spnav_event(2, 1)
+    conn.sendall(data[:40])                                    # one event and a bit: the bit waits
+    time.sleep(0.05)
+    first = source.read()
+    conn.sendall(data[40:])
+    time.sleep(0.05)
+    rest = source.read()
+    assert len(first) == 1 and first[0].axes[0] == 1.0 and first[0].axes[2] < 0
+    assert rest == [sm.Button(1, True), sm.Button(1, False)]
+    conn.close()
+    time.sleep(0.05)
+    with pytest.raises(EOFError):
+        source.read()
+    source.close()
+    srv.close()
+    if not sys.platform.startswith("linux"):
+        return
+    monkeypatch.setattr(sm, "spnav_socket_paths", lambda: [str(tmp_path / "none.sock")])    # no spacenavd
+    compact = sm.EvdevDevice("/dev/input/event7", "3Dconnexion SpaceMouse Compact", False)
+    monkeypatch.setattr(sm, "find_evdev", lambda: [compact])
+    source, status = sm.connect()
+    assert source is None and "SpaceMouse Compact is plugged in" in status and "spacenavd" in status
+    monkeypatch.setattr(sm, "find_evdev", lambda: [])
+    assert sm.connect() == (None, "No SpaceMouse found (plug it in, or start spacenavd)")
+
+
+def test_spacemouse_device_itself(tmp_path):
+    """Without spacenavd: the /dev/input node, found by its six axes and its
+    maker, its axes turned into spacenavd's the way spacenavd does it."""
+    import os
+    import struct
+    from openvat.core import spacemouse as sm
+    dev, sysfs = tmp_path / "dev", tmp_path / "sys"
+    dev.mkdir()
+    for n, (name, vendor, product, rel, abs_) in enumerate([
+            ("3Dconnexion SpaceMouse Compact", "256f", "c635", "0", "3f"),
+            ("Logitech Gamepad F310", "046d", "c216", "0", "3003f"),       # six axes, not a SpaceMouse
+            ("3Dconnexion SpaceNavigator", "046d", "c626", "3f", "0"),
+            ("AT Translated Set 2 keyboard", "0001", "0001", "0", "0")]):
+        (dev / f"event{n}").write_bytes(b"")
+        d = sysfs / f"event{n}" / "device"
+        (d / "id").mkdir(parents=True)
+        (d / "capabilities").mkdir()
+        (d / "name").write_text(name + "\n")
+        (d / "id" / "vendor").write_text(vendor + "\n")
+        (d / "id" / "product").write_text(product + "\n")
+        (d / "capabilities" / "rel").write_text(rel + "\n")
+        (d / "capabilities" / "abs").write_text(abs_ + "\n")
+    found = sm.find_evdev(str(dev), str(sysfs))
+    assert [f.name for f in found] == ["3Dconnexion SpaceMouse Compact", "3Dconnexion SpaceNavigator"]
+
+    r, w = os.pipe()                                           # the device node: events as the kernel writes them
+    os.set_blocking(r, False)
+    source = sm.EvdevSource(r, found[0])
+    assert source.button_base == sm.BTN_MISC                   # a pipe answers no ioctl: BTN_0 is button 0
+    ev = lambda kind, code, value: struct.pack("llHHi", 0, 0, kind, code, value)
+    os.write(w, ev(sm.EV_ABS, 0, 350) + ev(sm.EV_ABS, 1, 350) + ev(sm.EV_ABS, 2, -350) + ev(sm.EV_ABS, 5, 350)
+             + ev(0, 0, 0) + ev(sm.EV_KEY, 0x101, 1) + ev(sm.EV_KEY, 0x101, 0))
+    events = source.read()
+    assert events[:2] == [sm.Button(1, True), sm.Button(1, False)]
+    x, y, z, rx, ry, rz = events[2].axes
+    assert (x, y, z, rx, ry, rz) == (1.0, 1.0, -1.0, 0.0, -1.0, 0.0)   # right; lifted; pulled toward you;
+    assert source.settle() is None                             # twisted clockwise.  Absolute axes hold
+    os.write(w, ev(sm.EV_REL, 3, 200))
+    assert source.read()[-1].axes[3] > 0
+    source.seen[3] -= 1.0                                      # relative ones are not reported at rest
+    assert source.settle().axes[3] == 0.0
+    source.close()
+    os.close(w)
+
+
+def test_spacemouse_in_the_ui(tmp_path):
+    """The window in front follows the SpaceMouse on the 3D and voxel pages
+    (not on the home page); button 1 is the home view, button 2 turns the
+    view 90 degrees; Preferences change that at once and keep it; spacenavd
+    going away is noticed."""
+    import os
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X server (run under xvfb-run)")
+    srv, path = _spnav_server(tmp_path)
+    srv.close()
+    os.unlink(path)
+    code = f'''
+import os, socket, struct, time
+os.environ["SPNAV_SOCKET"] = {path!r}
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); srv.bind({path!r}); srv.listen(1)
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+from openvat.core.profiles import ProfileStore
+from openvat.ui import main_window as mw
+from openvat.ui.app_settings_dialog import PreferencesDialog
+st = ProfileStore({str(tmp_path / "home")!r}); st.printers.append(st.printer_presets[0])
+st.settings["home_at_start"] = True
+w = mw.MainWindow(st); w.resize(1100, 750); w.show()
+w._app_active = lambda: True
+conn, _ = srv.accept()
+def pump(t=0.1):
+    end = time.monotonic() + t
+    while time.monotonic() < end:
+        app.processEvents(); time.sleep(0.005)
+ev = lambda *d: struct.pack("=8i", *(list(d) + [0] * (8 - len(d))))
+cam = w.viewport.camera
+out = [w.spacemouse.status.startswith("Connected through spacenavd")]
+y0 = cam.yaw
+conn.sendall(ev(0, 0, 0, 0, 0, 300, 0, 16)); pump(0.2)          # the home page: nothing moves
+conn.sendall(ev(0)); pump()
+out.append(cam.yaw == y0)
+w.pages.setCurrentIndex(mw.PAGE_3D); pump()
+conn.sendall(ev(0, 0, 0, 0, 0, 300, 0, 16)); pump(0.3)          # twisted counter-clockwise
+moving = w.spacemouse._tick.isActive()
+conn.sendall(ev(0)); pump()
+out.append((moving, -40 < (cam.yaw - y0 + 180) % 360 - 180 < -5, w.spacemouse._tick.isActive()))
+conn.sendall(ev(1, 0) + ev(2, 0)); pump()                        # button 1: the home view
+out.append((round(cam.yaw % 360, 3), round(cam.pitch, 3)))
+conn.sendall(ev(1, 1) + ev(2, 1)); pump()                        # button 2: a quarter turn
+out.append(round(cam.yaw % 360, 3))
+w.pages.setCurrentIndex(mw.PAGE_VOXELS); pump()
+vcam = w.voxel_page.viewport.camera
+p0 = vcam.pitch
+conn.sendall(ev(0, 0, 0, 0, -300, 0, 0, 16)); pump(0.2)          # tilted back: the voxel view follows
+conn.sendall(ev(0)); pump()
+out.append((vcam.pitch < p0, round(cam.yaw % 360, 3)))
+w.pages.setCurrentIndex(mw.PAGE_3D); pump()
+dlg = PreferencesDialog(st, w._apply_preferences, w, spacemouse=w.spacemouse)
+dlg.sm_buttons[0].setCurrentIndex(dlg.sm_buttons[0].findData("top"))
+dlg.sm_invert["invert_spin"].setChecked(True)
+conn.sendall(ev(1, 0)); pump()
+out.append((dlg.sm_pressed.text(), round(cam.pitch, 1), dlg.sm_status.text() == w.spacemouse.status))
+dlg.accept()
+w.spacemouse.set_settings(type(w.spacemouse.settings).from_dict(st.settings["spacemouse"]))
+out.append((st.settings["spacemouse"]["button1"], st.settings["spacemouse"]["invert_spin"],
+            w.spacemouse.settings.button1))
+dlg = PreferencesDialog(st, w._apply_preferences, w, spacemouse=w.spacemouse)
+dlg.sm_enabled.setChecked(False)
+off = (w.spacemouse.connected, w.spacemouse.status)
+dlg.reject()                                                     # Cancel: on again, as it was
+pump()
+conn2, _ = srv.accept(); pump()
+out.append((off, w.spacemouse.connected, w.spacemouse.settings.enabled))
+conn.close(); conn2.close(); pump()
+out.append((w.spacemouse.connected, w.spacemouse._retry.isActive(), w.spacemouse.status))
+w.close()
+print(repr(out))
+'''
+    r = _run_python(code)
+    assert r.returncode == 0, r.stderr
+    out = eval(r.stdout.strip().splitlines()[-1])
+    assert out[0] is True and out[1] is True
+    assert out[2] == (True, True, False)                         # turning while pushed, stops when let go
+    assert out[3] == (325.0, 30.0)                               # the home view (iso)
+    assert out[4] == 55.0                                        # turned 90 degrees around the plate
+    assert out[5] == (True, 55.0)                                # the voxel view moved, the plate's did not
+    assert out[6] == ("<i>Button 1: Top view</i>", 89.9, True)   # applies at once, says which button
+    assert out[7] == ("top", True, "top")
+    assert out[8] == ((False, "Off"), True, True)
+    assert out[9] == (False, True, "The SpaceMouse went away - looking for it again")

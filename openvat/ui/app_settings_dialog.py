@@ -1,8 +1,9 @@
 """Edit → Preferences: light / dark theme (dark unless the user picks
 light), the 3D view's colors for each theme and its lighting (see
 lighting.py), the interface zoom, the folder the printer and resin
-profiles are kept in, and how projects behave (the home page at start,
-asking to save) - on four tabs.
+profiles are kept in, how projects behave (the home page at start, asking
+to save) and the 3Dconnexion SpaceMouse (speed, directions, what its two
+buttons do - see spacemouse.py) - on five tabs.
 
 The theme switches the whole application between an explicit light and an
 explicit dark palette (Fusion style for both, so it changes even when the
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QComboBox
                                QWidget, QSlider, QSpinBox)
 
 from ..core.profiles import ProfileStore, PRINTERS
+from ..core.spacemouse import ACTIONS, SpaceMouseSettings
 from .lighting import Lighting
 from .theme_colors import DEFAULT_THEME_COLORS
 from .zoom import ZOOM_LEVELS
@@ -204,7 +206,8 @@ class PreferencesDialog(QDialog):
     changes (``colors`` holds both themes, see ``saved_colors``), so the main
     window can show it right away - and again with the old values on Cancel."""
 
-    def __init__(self, store: ProfileStore, preview: Callable[[bool, dict, Lighting], None], parent=None):
+    def __init__(self, store: ProfileStore, preview: Callable[[bool, dict, Lighting], None], parent=None,
+                 spacemouse=None):
         super().__init__(parent)
         self.store, self.preview = store, preview
         self._old = (dark_mode(store), saved_colors(store), saved_lighting(store))
@@ -277,6 +280,7 @@ class PreferencesDialog(QDialog):
         alay.addStretch(1)
 
         self.tabs.addTab(self._build_lighting(self._old[2]), "Lighting")
+        self.tabs.addTab(self._build_spacemouse(spacemouse), "SpaceMouse")
 
         profiles = QWidget()
         play = QVBoxLayout(profiles)
@@ -390,6 +394,94 @@ class PreferencesDialog(QDialog):
             self._set_lighting(Lighting(**LIGHTING_PRESETS[name]))
         self.preset.setCurrentIndex(0)
 
+    # -- the SpaceMouse (applies at once, so it can be tried on the 3D view) --
+    def _build_spacemouse(self, spacemouse) -> QWidget:
+        self.spacemouse = spacemouse                   # ui.spacemouse.SpaceMouse, or None
+        self._old_spacemouse = SpaceMouseSettings.from_dict(self.store.settings.get("spacemouse"))
+        s = self._old_spacemouse
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        group = QGroupBox("3Dconnexion SpaceMouse")
+        form = QFormLayout(group)
+        self.sm_enabled = QCheckBox("Move the 3D view with a SpaceMouse")
+        self.sm_enabled.setChecked(s.enabled)
+        form.addRow("", self.sm_enabled)
+        self.sm_speed = SliderRow(10, 300, " %")
+        self.sm_speed.setValue(s.speed * 100)
+        form.addRow("Speed", self.sm_speed)
+        reverse = QWidget()
+        rlay = QVBoxLayout(reverse)
+        rlay.setContentsMargins(0, 0, 0, 0)
+        self.sm_invert: dict[str, QCheckBox] = {}
+        for key, label in (("invert_pan", "Pan (left / right, up / down)"), ("invert_zoom", "Zoom (push / pull)"),
+                           ("invert_tilt", "Tilt (forward / back)"), ("invert_spin", "Spin (twist)")):
+            box = QCheckBox(label)
+            box.setChecked(getattr(s, key))
+            rlay.addWidget(box)
+            self.sm_invert[key] = box
+        form.addRow("Reverse", reverse)
+        self.sm_buttons: list[QComboBox] = []
+        for i, current in enumerate((s.button1, s.button2)):
+            combo = QComboBox()
+            for key, label in ACTIONS.items():
+                combo.addItem(label, key)
+            combo.setCurrentIndex(max(combo.findData(current), 0))
+            form.addRow(f"Button {i + 1}", combo)
+            self.sm_buttons.append(combo)
+        self.sm_pressed = QLabel("<i>Press a button on the SpaceMouse to see its number here.</i>")
+        form.addRow("", self.sm_pressed)
+        note = QLabel("<i>The model follows the cap: push it sideways or lift it to pan, push it away or pull "
+                      "it toward you to zoom, tilt it or twist it to turn the view.  Changes apply at once, so "
+                      "you can try them on the 3D view.<br>On Linux OpenVat reads the SpaceMouse through "
+                      "spacenavd, or from the device itself when your user may read it.</i>")
+        note.setWordWrap(True)
+        form.addRow(note)
+        lay.addWidget(group)
+        status = QGroupBox("Status")
+        slay = QVBoxLayout(status)
+        self.sm_status = QLabel(spacemouse.status if spacemouse is not None else "")
+        self.sm_status.setWordWrap(True)
+        self.sm_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        slay.addWidget(self.sm_status)
+        lay.addWidget(status)
+        lay.addStretch(1)
+
+        self.sm_enabled.toggled.connect(self._spacemouse_changed)
+        self.sm_speed.valueChanged.connect(self._spacemouse_changed)
+        for box in self.sm_invert.values():
+            box.toggled.connect(self._spacemouse_changed)
+        for combo in self.sm_buttons:
+            combo.currentIndexChanged.connect(self._spacemouse_changed)
+        if spacemouse is not None:
+            spacemouse.status_changed.connect(self.sm_status.setText)
+            spacemouse.button.connect(self._spacemouse_pressed)
+        return page
+
+    def spacemouse_settings(self) -> SpaceMouseSettings:
+        return SpaceMouseSettings(
+            enabled=self.sm_enabled.isChecked(), speed=self.sm_speed.value() / 100,
+            button1=self.sm_buttons[0].currentData(), button2=self.sm_buttons[1].currentData(),
+            **{key: box.isChecked() for key, box in self.sm_invert.items()})
+
+    def _spacemouse_changed(self, *_args) -> None:
+        if self.spacemouse is not None:
+            self.spacemouse.set_settings(self.spacemouse_settings())
+
+    def _spacemouse_pressed(self, index: int, pressed: bool) -> None:
+        if pressed:
+            action = self.sm_buttons[index].currentText() if index < len(self.sm_buttons) else "nothing (yet)"
+            self.sm_pressed.setText(f"<i>Button {index + 1}: {action}</i>")
+
+    def done(self, result: int) -> None:
+        if self.spacemouse is not None:                # the dialog is kept (parented): stop listening
+            for signal, slot in ((self.spacemouse.status_changed, self.sm_status.setText),
+                                 (self.spacemouse.button, self._spacemouse_pressed)):
+                try:
+                    signal.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
+        super().done(result)
+
     def values(self) -> tuple[bool, dict, Lighting]:
         return (self.dark.isChecked(), {theme: {k: b.color for k, b in buttons.items()}
                                         for theme, buttons in self.buttons.items()}, self.lighting())
@@ -467,6 +559,8 @@ class PreferencesDialog(QDialog):
 
     def reject(self) -> None:
         self.preview(*self._old)
+        if self.spacemouse is not None:
+            self.spacemouse.set_settings(self._old_spacemouse)
         super().reject()
 
     def accept(self) -> None:
@@ -476,6 +570,7 @@ class PreferencesDialog(QDialog):
         self.store.settings["lighting"] = light.to_dict()
         self.store.settings["home_at_start"] = self.home_at_start.isChecked()
         self.store.settings["ask_save_on_close"] = self.ask_save.isChecked()
+        self.store.settings["spacemouse"] = self.spacemouse_settings().to_dict()
         self.store.settings["dark_mode"] = dark
         self.store.settings["colors"] = {
             theme: {k: v for k, v in colors[theme].items() if v != DEFAULT_THEME_COLORS[theme][k]}

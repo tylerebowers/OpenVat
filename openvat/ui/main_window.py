@@ -28,6 +28,7 @@ from ..core.supports import SupportSettings
 from ..core.hollow import HollowSettings
 from ..core import stats, usb
 from ..core.problems import find_problems
+from ..core.spacemouse import SpaceMouseSettings, navigation
 from ..core.project import EXTENSION as PROJECT_EXT, FILE_FILTER as PROJECT_FILTER, is_project, load_project, \
     save_project
 from ..formats.export import write_print_file, why_not
@@ -45,6 +46,7 @@ from .viewport3d import Viewport3D, software_renderer
 from .usb_export import UsbWatcher
 from .home_page import HomePage
 from .nav import NavButton
+from .spacemouse import SpaceMouse
 from .zoom import UiZoom
 
 HINT = ("Left-drag: move · Right-drag: orbit · Middle/Shift-drag: pan · "
@@ -151,6 +153,11 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._refresh_problems()
         self._refresh_home()
+
+        # a 3Dconnexion SpaceMouse moves the 3D views (spacemouse.py); its buttons: Edit → Preferences
+        self.spacemouse = SpaceMouse(SpaceMouseSettings.from_dict(self.store.settings.get("spacemouse")), self)
+        self.spacemouse.moved.connect(self._spacemouse_moved)
+        self.spacemouse.button.connect(self._spacemouse_button)
         if self.store.settings.get("home_at_start", True):
             self.pages.setCurrentIndex(PAGE_HOME)
 
@@ -545,6 +552,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.voxel_page.stop()                         # no thread may outlive the window
+        self.spacemouse.stop()
         if self._thread is not None and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(30000)
@@ -755,6 +763,55 @@ class MainWindow(QMainWindow):
         self.viewport.camera.set_view("iso")
         self.viewport.fit_view()
 
+    # ------------------------------------------------------------ SpaceMouse
+    def _app_active(self) -> bool:
+        """spacenavd tells every program about the SpaceMouse: only the one
+        in front follows it."""
+        return QApplication.applicationState() == Qt.ApplicationActive
+
+    def _spacemouse_view(self):
+        """The 3D view on the page shown (the plate or the voxel preview), or
+        None (the home page, the layer view, OpenVat not in front)."""
+        if not self._app_active():
+            return None
+        return {PAGE_3D: self.viewport, PAGE_VOXELS: self.voxel_page.viewport}.get(self.pages.currentIndex())
+
+    def _spacemouse_moved(self, axes, dt: float) -> None:
+        view = self._spacemouse_view()
+        if view is None:
+            return
+        nav = navigation(axes, self.spacemouse.settings, dt)
+        cam = view.camera
+        if any(nav["pan"]):
+            cam.pan(*nav["pan"])
+        if nav["zoom"]:
+            cam.zoom(nav["zoom"])
+        if nav["yaw"] or nav["pitch"]:
+            cam.orbit_by(nav["yaw"], nav["pitch"])
+        view.update()
+
+    def _spacemouse_button(self, index: int, pressed: bool) -> None:
+        """Button 1: the home view, button 2: turn the view 90° (unless
+        Preferences say otherwise)."""
+        view = self._spacemouse_view()
+        if not pressed or view is None:
+            return
+        action = self.spacemouse.settings.action(index)
+        if action == "home":
+            if view is self.viewport:
+                self._home_view()
+            else:
+                self.voxel_page._home()
+        elif action == "turn90":
+            view.camera.orbit_by(90.0, 0.0)          # around the plate: the model seems to turn clockwise
+            view.update()
+        elif action == "fit":
+            view.fit_view()
+        elif action in ("top", "front"):
+            view.set_view(action)
+        elif action == "rotate_model" and view is self.viewport:
+            self.tools._rotate(2, 90.0)                # about Z, one undo step
+
     # ------------------------------------------------------------ hint line
     def _update_hint(self) -> None:
         """The line over the bottom of the 3D view: the mouse controls and a
@@ -809,9 +866,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ preferences
     def open_preferences(self) -> None:
         before = self.store.profiles_dir
-        dlg = PreferencesDialog(self.store, self._apply_preferences, self)
+        dlg = PreferencesDialog(self.store, self._apply_preferences, self, spacemouse=self.spacemouse)
         if dlg.exec() and getattr(dlg, "chosen_zoom", None) is not None:
             self.ui_zoom.set_zoom(dlg.chosen_zoom)
+        self.spacemouse.set_settings(SpaceMouseSettings.from_dict(self.store.settings.get("spacemouse")))
         if self.store.profiles_dir != before:
             self._profiles_moved(before)
 
